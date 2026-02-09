@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Verification Code</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+      rel="stylesheet">
+    <style type="text/css">
+    body {
+      margin: 0;
+      padding: 0;
+      min-width: 100%;
+      font-family: 'Roboto', Arial, sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+      background-color: #f7f7f7;
+    }
+    table {
+      border-spacing: 0;
+      border-collapse: collapse;
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+    }
+    td {
+      padding: 0;
+      vertical-align: top;
+    }
+    img {
+      border: 0;
+      -ms-interpolation-mode: bicubic;
+      max-width: 100%;
+    }
+    a {
+      text-decoration: none;
+      color: #0366d6;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .ReadMsgBody { width: 100%; }
+    .ExternalClass { width: 100%; }
+    .ExternalClass, .ExternalClass p, .ExternalClass span, .ExternalClass font, .ExternalClass td, .ExternalClass div { line-height: 100%; }
+    
+    @media screen and (max-width: 600px) {
+      .container {
+        width: 100% !important;
+      }
+      .mobile-padding {
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+      }
+      .mobile-stack {
+        display: block !important;
+        width: 100% !important;
+      }
+      .logo {
+        max-width: 120px !important;
+        height: auto !important;
+      }
+      .otp-container {
+        padding: 12px 24px !important;
+      }
+      .otp-code {
+        font-size: 24px !important;
+      }
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      .dark-mode {
+        background-color: #2d2d2d !important;
+        color: #ffffff !important;
+      }
+      .dark-container {
+        background-color: #1f1f1f !important;
+      }
+      .dark-text {
+        color: #e0e0e0 !important;
+      }
+      .dark-footer {
+        background-color: #2d2d2d !important;
+        color: #cccccc !important;
+      }
+      .dark-button {
+        background-color: #0366d6 !important;
+      }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .animated {
+      animation: fadeIn 0.5s ease-in;
+    }
+  </style>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f7f7f7;"
+    class="dark-mode">
+
+    <div style="display: none; max-height: 0px; overflow: hidden;">
+      Your verification code is: {{otp}} - Use this to complete your email
+      verification process
+    </div>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+      border="0">
+      <tr>
+        <td align="center" style="padding: 20px 0;">
+          <table role="presentation" class="container" width="600"
+            cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td align="center" style="padding: 20px 0;">
+                <img
+                  src="https://c3bit.com/wp-content/uploads/2023/03/White.png"
+                  alt="C3BIT" style="width: 160px; height: 50px;" class="logo">
+              </td>
+            </tr>
+
+            <tr>
+              <td class="dark-container"
+                style="background-color: #ffffff; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                <table role="presentation" width="100%" cellspacing="0"
+                  cellpadding="0" border="0">
+                  <tr>
+                    <td
+                      style="padding: 0; background-color: #0366d6; height: 5px; border-top-left-radius: 6px; border-top-right-radius: 6px;"></td>
+                  </tr>
+                </table>
+
+                <table role="presentation" width="100%" cellspacing="0"
+                  cellpadding="0" border="0">
+                  <tr>
+                    <td class="mobile-padding dark-text"
+                      style="padding: 30px 40px 10px 40px;">
+                      <h1
+                        style="margin: 0 0 20px; font-size: 24px; line-height: 32px; font-weight: 700; color: #333333;">Email
+                        Verification Code</h1>
+                      <p
+                        style="margin: 0 0 20px; font-size: 16px; line-height: 24px; color: #555555;">
+                        We need to verify your email address. Please use the
+                        verification code below to complete the process:
+                      </p>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td align="center" class="animated"
+                      style="padding: 10px 40px 20px 40px;">
+                      <div class="otp-container dark-button"
+                        style="background-color: #0366d6; border-radius: 6px; padding: 16px 30px; display: inline-block;">
+                        <span class="otp-code"
+                          style="font-family: 'Courier New', monospace; font-size: 28px; letter-spacing: 3px; color: #ffffff; font-weight: 700;">
+                          {{otp}}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="mobile-padding dark-text"
+                      style="padding: 10px 40px 30px 40px;">
+                      <p
+                        style="margin: 0 0 20px; font-size: 16px; line-height: 24px; color: #555555;">
+                        This code will expire in <strong>3 minutes</strong>. If
+                        you didn't request this verification, please ignore this
+                        email.
+                      </p>
+                      <p
+                        style="margin: 0; font-size: 16px; line-height: 24px; color: #555555;">
+                        Best regards,<br>
+                        <strong>C3BIT Team</strong>
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="dark-footer" style="padding: 20px 0;">
+                <table role="presentation" width="100%" cellspacing="0"
+                  cellpadding="0" border="0">
+                  <tr>
+                    <td align="center"
+                      style="padding: 0 40px 10px 40px; font-size: 14px; line-height: 20px; color: #777777;">
+                      <p style="margin: 0;">
+                        If you have any questions, please contact our <a
+                          href="#" style="color: #0366d6;">Support Center</a>
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center"
+                      style="padding: 0 40px; font-size: 12px; line-height: 18px; color: #999999;">
+                      <p style="margin: 0;">
+                        © 2025 C3BIT. All rights reserved.<br>
+                        Block – F, House – 32 Road-07, Banani, Dhaka 1213
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+  </body>
+</html>

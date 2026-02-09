@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    # Internal port set by Dockerfile (usually 3000), Coolify auto-detects
+    environment:
+      - NODE_ENV=production

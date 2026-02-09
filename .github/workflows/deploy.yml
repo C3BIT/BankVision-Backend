@@ -1,0 +1,49 @@
+name: BankVision webservice
+
+on:
+  push:
+    branches: [ master ]  # or your deployment branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Lint/Test (if any)
+        run: |
+          echo "No tests configured yet"
+          # npm run lint
+          # npm test
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: 22
+          script: |
+            echo "Navigating to project directory"
+            cd /var/www/html/BankVision/vb-webservice/
+            
+            echo "Pulling latest changes from master branch"
+            git pull origin master
+
+            echo "Installing dependencies"
+            npm install
+
+            echo "Restarting PM2 process"
+            pm2 restart vbrm-service || pm2 start src/index.js --name vbrm-service
+
+            echo "Deployment complete!"

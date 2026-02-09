@@ -1,0 +1,829 @@
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { Admin } = require('../models/Admin');
+const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog } = require('../models');
+const { Op } = require('sequelize');
+const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
+const { logAdminActivity, getClientIP } = require('../services/loggingService');
+const { getActiveCallsData, getOnlineManagersData } = require('../services/socketHandler');
+const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
+const { checkPasswordExpiry } = require('../middlewares/passwordExpiryMiddleware');
+
+const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+
+// Admin Registration (usually seeded or created by super admin)
+const registerAdmin = async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, and password are required'
+      });
+    }
+
+    // Validate password against policy
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordValidation.errors.join('. '),
+        errors: passwordValidation.errors,
+        requirements: getPasswordRequirements()
+      });
+    }
+
+    const existingAdmin = await Admin.findOne({ where: { email } });
+    if (existingAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin with this email already exists'
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const admin = await Admin.create({
+      name,
+      email,
+      password: hashedPassword,
+      role: role || 'admin'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin created successfully',
+      data: {
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role
+      }
+    });
+  } catch (error) {
+    console.error('Admin Registration Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create admin'
+    });
+  }
+};
+
+// Admin Login
+const loginAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
+
+    const admin = await Admin.findOne({ where: { email } });
+
+    if (!admin) {
+      // Generic message - don't reveal if email exists
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    if (!admin.isActive) {
+      // Generic message - don't reveal account status
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, admin.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Check password expiry (90-day rotation policy)
+    const expiryStatus = checkPasswordExpiry(admin.passwordChangedAt);
+
+    if (expiryStatus.isExpired) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your password has expired. Please reset your password to continue.',
+        error: {
+          code: 40303,
+          passwordExpired: true,
+          requiresPasswordChange: true
+        }
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+        type: 'admin'
+      },
+      jwtSecret,
+      { expiresIn: '8h' }
+    );
+
+    // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript)
+    setAuthCookie(res, token, 8 * 60 * 60 * 1000); // 8 hours
+
+    const responseData = {
+      admin: {
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        profileImage: admin.profileImage
+      }
+      // Note: Token now sent via httpOnly cookie, not in response body
+      // For backward compatibility during migration, can temporarily include token
+    };
+
+    // Add password expiry warning if applicable
+    if (expiryStatus.showWarning) {
+      responseData.passwordExpiryWarning = {
+        message: `Your password will expire in ${expiryStatus.daysRemaining} days. Please change it soon.`,
+        daysRemaining: expiryStatus.daysRemaining
+      };
+    }
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: responseData
+    });
+  } catch (error) {
+    console.error('Admin Login Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Login failed'
+    });
+  }
+};
+
+// Get all managers
+const getManagers = async (req, res) => {
+  try {
+    const managers = await Manager.findAll({
+      attributes: ['id', 'name', 'email', 'profileImage', 'createdAt'],
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: managers
+    });
+  } catch (error) {
+    console.error('Get Managers Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch managers'
+    });
+  }
+};
+
+// Get dashboard statistics
+const getDashboardStats = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Today's call statistics
+    const todayCalls = await CallLog.findAll({
+      where: {
+        createdAt: {
+          [Op.between]: [today, tomorrow]
+        }
+      }
+    });
+
+    const totalCallsToday = todayCalls.length;
+    const completedCalls = todayCalls.filter(c => c.status === 'completed').length;
+    const missedCalls = todayCalls.filter(c => c.status === 'missed' || c.status === 'rejected').length;
+    const avgDuration = totalCallsToday > 0
+      ? Math.round(todayCalls.reduce((sum, c) => sum + (c.duration || 0), 0) / totalCallsToday)
+      : 0;
+
+    // Total managers
+    const totalManagers = await Manager.count();
+
+    // Feedback stats for today
+    const todayFeedback = await CustomerFeedback.findAll({
+      where: {
+        createdAt: {
+          [Op.between]: [today, tomorrow]
+        }
+      }
+    });
+
+    const avgRating = todayFeedback.length > 0
+      ? (todayFeedback.reduce((sum, f) => sum + f.rating, 0) / todayFeedback.length).toFixed(1)
+      : 0;
+
+    // Weekly call trend
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const weeklyCallsRaw = await CallLog.findAll({
+      where: {
+        createdAt: {
+          [Op.gte]: weekAgo
+        }
+      },
+      attributes: ['createdAt', 'status']
+    });
+
+    // Group by day
+    const weeklyTrend = {};
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      weeklyTrend[dateStr] = { date: dateStr, calls: 0, completed: 0 };
+    }
+
+    weeklyCallsRaw.forEach(call => {
+      const dateStr = call.createdAt.toISOString().split('T')[0];
+      if (weeklyTrend[dateStr]) {
+        weeklyTrend[dateStr].calls++;
+        if (call.status === 'completed') {
+          weeklyTrend[dateStr].completed++;
+        }
+      }
+    });
+
+    // Get real-time active data
+    const activeCalls = getActiveCallsData();
+    const onlineManagers = getOnlineManagersData();
+    console.log('📊 Dashboard API - activeCalls:', activeCalls.length, '- onlineManagers:', onlineManagers.length, onlineManagers);
+
+    res.json({
+      success: true,
+      data: {
+        today: {
+          totalCalls: totalCallsToday,
+          completedCalls,
+          missedCalls,
+          avgDuration,
+          avgRating: parseFloat(avgRating)
+        },
+        totalManagers,
+        weeklyTrend: Object.values(weeklyTrend),
+        realtime: {
+          activeCalls: activeCalls.length,
+          onlineManagers: onlineManagers.filter(m => m.status === 'online').length,
+          busyManagers: onlineManagers.filter(m => m.status === 'busy').length,
+          offlineManagers: onlineManagers.filter(m => m.status === 'offline').length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Dashboard Stats Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch dashboard stats'
+    });
+  }
+};
+
+// Reset manager password
+const resetManagerPassword = async (req, res) => {
+  try {
+    const { managerId } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password is required'
+      });
+    }
+
+    // Validate password against policy
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordValidation.errors.join('. '),
+        errors: passwordValidation.errors,
+        requirements: getPasswordRequirements()
+      });
+    }
+
+    const manager = await Manager.findByPk(managerId);
+
+    if (!manager) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid manager ID'
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    manager.password = hashedPassword;
+    await manager.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset Password Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to reset password'
+    });
+  }
+};
+
+// Get active calls (for supervisor monitoring) - from in-memory socket data
+const getActiveCalls = async (req, res) => {
+  try {
+    // Get real-time active calls from socket handler
+    const activeCalls = getActiveCallsData();
+    console.log('📊 Active Calls API - activeCalls:', activeCalls.length);
+
+    // Also get online managers
+    const onlineManagers = getOnlineManagersData();
+    console.log('📊 Active Calls API - onlineManagers:', onlineManagers.length, onlineManagers);
+
+    res.json({
+      success: true,
+      data: {
+        activeCalls,
+        onlineManagers,
+        totalActiveCalls: activeCalls.length,
+        totalOnlineManagers: onlineManagers.filter(m => m.status === 'online').length,
+        totalBusyManagers: onlineManagers.filter(m => m.status === 'busy').length
+      }
+    });
+  } catch (error) {
+    console.error('Get Active Calls Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch active calls'
+    });
+  }
+};
+
+// Get call logs with filters
+const getCallLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, startDate, endDate, status, managerEmail } = req.query;
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (startDate && endDate) {
+      where.createdAt = {
+        [Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    }
+    if (status) where.status = status;
+    if (managerEmail) where.managerEmail = managerEmail;
+
+    const { count, rows } = await CallLog.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.json({
+      success: true,
+      data: {
+        calls: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Call Logs Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch call logs'
+    });
+  }
+};
+
+// Get recordings with filters
+const getRecordings = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, startDate, endDate, status, managerEmail, customerPhone } = req.query;
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (startDate && endDate) {
+      where.startTime = {
+        [Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    }
+    if (status) where.status = status;
+    if (managerEmail) where.managerEmail = managerEmail;
+    if (customerPhone) where.customerPhone = customerPhone;
+
+    const { count, rows } = await Recording.findAndCountAll({
+      where,
+      order: [['startTime', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      include: [
+        {
+          model: CallLog,
+          as: 'callLog',
+          attributes: ['id', 'customerName', 'status', 'duration']
+        }
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: {
+        recordings: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Recordings Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch recordings'
+    });
+  }
+};
+
+// Get single recording
+const getRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const recording = await Recording.findByPk(id, {
+      include: [
+        {
+          model: CallLog,
+          as: 'callLog',
+          attributes: ['id', 'customerName', 'customerPhone', 'managerName', 'status', 'duration']
+        }
+      ]
+    });
+
+    if (!recording) {
+      return res.status(404).json({
+        success: false,
+        message: 'Recording not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: recording
+    });
+  } catch (error) {
+    console.error('Get Recording Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch recording'
+    });
+  }
+};
+
+// Update recording (notes, status)
+const updateRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes, status, filePath, fileSize } = req.body;
+
+    const recording = await Recording.findByPk(id);
+
+    if (!recording) {
+      return res.status(404).json({
+        success: false,
+        message: 'Recording not found'
+      });
+    }
+
+    if (notes !== undefined) recording.notes = notes;
+    if (status) recording.status = status;
+    if (filePath) recording.filePath = filePath;
+    if (fileSize) recording.fileSize = fileSize;
+
+    await recording.save();
+
+    res.json({
+      success: true,
+      message: 'Recording updated successfully',
+      data: recording
+    });
+  } catch (error) {
+    console.error('Update Recording Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update recording'
+    });
+  }
+};
+
+// Delete recording (soft delete by status)
+const deleteRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const recording = await Recording.findByPk(id);
+
+    if (!recording) {
+      return res.status(404).json({
+        success: false,
+        message: 'Recording not found'
+      });
+    }
+
+    recording.status = 'deleted';
+    await recording.save();
+
+    res.json({
+      success: true,
+      message: 'Recording deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete Recording Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to delete recording'
+    });
+  }
+};
+
+// ==================== SECURITY LOGS ====================
+
+// Get Authentication Logs
+const getAuthenticationLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, userEmail, eventType, userType, startDate, endDate } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (userEmail) where.userEmail = { [Op.like]: `%${userEmail}%` };
+    if (eventType) where.eventType = eventType;
+    if (userType) where.userType = userType;
+    if (startDate && endDate) {
+      where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+    }
+
+    const { count, rows } = await AuthenticationLog.findAndCountAll({
+      where,
+      order: [['timestamp', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+
+    // Log admin accessing auth logs
+    await logAdminActivity({
+      activityType: 'audit_log_access',
+      adminId: req.admin.id,
+      adminEmail: req.admin.email,
+      adminName: req.admin.name,
+      adminRole: req.admin.role,
+      targetType: 'system',
+      description: 'Accessed authentication logs',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent'],
+      metadata: { filters: { userEmail, eventType, userType, startDate, endDate } }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        logs: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Auth Logs Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch authentication logs'
+    });
+  }
+};
+
+// Get Transaction Logs
+const getTransactionLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, customerPhone, transactionType, status, managerEmail, startDate, endDate } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (customerPhone) where.customerPhone = { [Op.like]: `%${customerPhone}%` };
+    if (transactionType) where.transactionType = transactionType;
+    if (status) where.status = status;
+    if (managerEmail) where.managerEmail = { [Op.like]: `%${managerEmail}%` };
+    if (startDate && endDate) {
+      where.initiatedAt = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+    }
+
+    const { count, rows } = await TransactionLog.findAndCountAll({
+      where,
+      order: [['initiatedAt', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+
+    res.json({
+      success: true,
+      data: {
+        logs: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Transaction Logs Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch transaction logs'
+    });
+  }
+};
+
+// Get Admin Activity Logs
+const getAdminActivityLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, adminEmail, activityType, targetType, riskLevel, startDate, endDate } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (adminEmail) where.adminEmail = { [Op.like]: `%${adminEmail}%` };
+    if (activityType) where.activityType = activityType;
+    if (targetType) where.targetType = targetType;
+    if (riskLevel) where.riskLevel = riskLevel;
+    if (startDate && endDate) {
+      where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+    }
+
+    const { count, rows } = await AdminActivityLog.findAndCountAll({
+      where,
+      order: [['timestamp', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+
+    // Log admin accessing admin activity logs
+    await logAdminActivity({
+      activityType: 'audit_log_access',
+      adminId: req.admin.id,
+      adminEmail: req.admin.email,
+      adminName: req.admin.name,
+      adminRole: req.admin.role,
+      targetType: 'system',
+      description: 'Accessed admin activity logs',
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent']
+    });
+
+    res.json({
+      success: true,
+      data: {
+        logs: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Admin Activity Logs Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch admin activity logs'
+    });
+  }
+};
+
+// Get Security Summary
+const getSecuritySummary = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Failed logins today
+    const failedLoginsToday = await AuthenticationLog.count({
+      where: {
+        eventType: 'login_failed',
+        timestamp: { [Op.gte]: today }
+      }
+    });
+
+    // Account lockouts today
+    const accountLockoutsToday = await AuthenticationLog.count({
+      where: {
+        eventType: 'account_locked',
+        timestamp: { [Op.gte]: today }
+      }
+    });
+
+    // Successful logins today
+    const successfulLoginsToday = await AuthenticationLog.count({
+      where: {
+        eventType: 'login_success',
+        timestamp: { [Op.gte]: today }
+      }
+    });
+
+    // High risk admin activities today
+    const highRiskActivitiesToday = await AdminActivityLog.count({
+      where: {
+        riskLevel: { [Op.in]: ['high', 'critical'] },
+        timestamp: { [Op.gte]: today }
+      }
+    });
+
+    // Recent suspicious IPs (more than 5 failed attempts)
+    const suspiciousIPs = await AuthenticationLog.findAll({
+      attributes: ['ipAddress', [require('sequelize').fn('COUNT', '*'), 'count']],
+      where: {
+        eventType: 'login_failed',
+        timestamp: { [Op.gte]: today }
+      },
+      group: ['ipAddress'],
+      having: require('sequelize').literal('COUNT(*) >= 5'),
+      limit: 10
+    });
+
+    res.json({
+      success: true,
+      data: {
+        today: {
+          failedLogins: failedLoginsToday,
+          accountLockouts: accountLockoutsToday,
+          successfulLogins: successfulLoginsToday,
+          highRiskActivities: highRiskActivitiesToday
+        },
+        suspiciousIPs: suspiciousIPs.map(ip => ({
+          ipAddress: ip.ipAddress,
+          failedAttempts: ip.get('count')
+        })),
+        generatedAt: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Get Security Summary Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch security summary'
+    });
+  }
+};
+
+module.exports = {
+  registerAdmin,
+  loginAdmin,
+  getManagers,
+  getDashboardStats,
+  resetManagerPassword,
+  getActiveCalls,
+  getCallLogs,
+  getRecordings,
+  getRecording,
+  updateRecording,
+  deleteRecording,
+  getAuthenticationLogs,
+  getTransactionLogs,
+  getAdminActivityLogs,
+  getSecuritySummary
+};
