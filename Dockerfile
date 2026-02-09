@@ -38,7 +38,7 @@ RUN mkdir -p /app/uploads && chown -R node:node /app
 USER node
 
 # Expose port
-EXPOSE 5094
+EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
