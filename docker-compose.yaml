@@ -7,3 +7,16 @@ services:
     # Internal port set by Dockerfile (usually 3000), Coolify auto-detects
     environment:
       - NODE_ENV=production
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass VbrmRedis2024Secure
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
