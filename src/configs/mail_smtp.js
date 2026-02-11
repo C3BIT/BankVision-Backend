@@ -22,14 +22,9 @@ if (emailHost && emailId && emailPassword) {
         rejectUnauthorized: false,
         ciphers: 'SSLv3',
       },
-      // Add connection timeout - increased for slower connections
-      connectionTimeout: 30000, // 30 seconds
+      connectionTimeout: 30000,
       greetingTimeout: 30000,
       socketTimeout: 30000,
-      // Additional options for better compatibility
-      requireTLS: false,
-      debug: false,
-      logger: false,
     });
 
     // Verify connection on startup (non-blocking, don't wait for it)
