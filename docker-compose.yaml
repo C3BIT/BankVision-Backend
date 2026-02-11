@@ -14,8 +14,8 @@ services:
       - "3000:3000"
     volumes:
       - ./uploads:/app/uploads
-    depends_on:
-      - redis
+    networks:
+      - mtb-network
 
   redis:
     image: redis:7.4-alpine
@@ -23,6 +23,13 @@ services:
     command: redis-server --requirepass VbrmRedis2024Secure
     volumes:
       - redis_data:/data
+    networks:
+      - mtb-network
+
+networks:
+  mtb-network:
+    external: true
+    name: mtb-network
 
 volumes:
   redis_data:
