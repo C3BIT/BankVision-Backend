@@ -1,4 +1,4 @@
-const { sequelize } = require('../models');
+const sequelize = require('../configs/sequelize');
 const { callQueue } = require('../services/callQueueService');
 
 const getHealth = async (req, res) => {
@@ -6,9 +6,13 @@ const getHealth = async (req, res) => {
     // Check Database connection
     let dbStatus = "connected";
     try {
+      if (!sequelize) {
+        console.error("CRITICAL: sequelize object is UNDEFINED in health controller");
+      }
       await sequelize.authenticate();
     } catch (err) {
-      console.error("Database health check failed:", err);
+      console.error("Database health check failed. Error type:", err.constructor.name);
+      console.error("Error message:", err.message);
       dbStatus = "disconnected";
     }
 

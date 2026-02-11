@@ -45,7 +45,7 @@ router.post("/token", async (req, res) => {
 
     // Use direct WebSocket connection to bypass Cloudflare proxy issues
     // Port 7880 is the LiveKit WebSocket port exposed by caddy-proxy
-    const serverUrl = process.env.LIVEKIT_URL || "wss://openvidu.ucchash4vc.xyz";
+    const serverUrl = process.env.PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL || "wss://openvidu.ucchash4vc.xyz";
 
     return res.status(200).json({
       success: true,
@@ -79,7 +79,7 @@ router.get("/room/:roomName", async (req, res) => {
       success: true,
       data: {
         roomName,
-        serverUrl: process.env.LIVEKIT_URL || "wss://openvidu.ucchash4vc.xyz",
+        serverUrl: process.env.PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL || "wss://openvidu.ucchash4vc.xyz",
       },
     });
   } catch (error) {

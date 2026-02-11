@@ -68,4 +68,4 @@ if (CallLog) {
   CallLog.hasOne(CallAgentReport, { foreignKey: "callLogId", as: "agentReport" });
 }
 
-module.exports = CallAgentReport;
+module.exports = { CallAgentReport };

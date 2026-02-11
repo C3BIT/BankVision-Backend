@@ -61,6 +61,8 @@ const handlebarOptions = {
   extName: ".hbs",
 };
 
-transporter.use("compile", hbs(handlebarOptions));
+if (transporter) {
+  transporter.use("compile", hbs(handlebarOptions));
+}
 
 module.exports = { transporter };

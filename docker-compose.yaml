@@ -5,9 +5,15 @@ services:
     build: .
     restart: unless-stopped
     # Internal port set by Dockerfile (usually 3000), Coolify auto-detects
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - REDIS_HOST=redis
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./uploads:/app/uploads
     depends_on:
       - redis
 

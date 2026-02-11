@@ -23,4 +23,5 @@ const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASS, {
   }
 })();
 
+console.log("📦 configs/sequelize.js module loaded. Exporting sequelize instance.");
 module.exports = sequelize;

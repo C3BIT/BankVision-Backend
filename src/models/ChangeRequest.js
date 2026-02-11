@@ -89,4 +89,4 @@ const ChangeRequest = sequelize.define('ChangeRequest', {
   ],
 });
 
-module.exports = ChangeRequest;
+module.exports = { ChangeRequest };

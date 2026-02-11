@@ -11,6 +11,7 @@ const { AuthenticationLog } = require('./AuthenticationLog');
 const { TransactionLog } = require('./TransactionLog');
 const { AdminActivityLog } = require('./AdminActivityLog');
 const { CallAgentReport } = require('./CallAgentReport');
+const { ChangeRequest } = require('./ChangeRequest');
 
 // Define associations
 CallLog.hasMany(VerificationLog, { foreignKey: 'callLogId', as: 'verifications' });
@@ -27,7 +28,10 @@ Recording.belongsTo(CallLog, { foreignKey: 'callLogId', as: 'callLog' });
 
 // CallAgentReport association is defined in CallAgentReport.js to avoid load-order issues
 
+const sequelize = require('../configs/sequelize');
+
 module.exports = {
+  sequelize,
   Manager,
   Customer,
   CallLog,
@@ -41,4 +45,5 @@ module.exports = {
   TransactionLog,
   AdminActivityLog,
   CallAgentReport,
+  ChangeRequest,
 };
