@@ -10,8 +10,12 @@ services:
       - ./uploads:/app/uploads
     networks:
       - mtb-network
+      - coolify
 
 networks:
   mtb-network:
     external: true
     name: mtb-network
+  coolify:
+    external: true
+    name: coolify
