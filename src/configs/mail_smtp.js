@@ -33,11 +33,12 @@ if (emailHost && emailId && emailPassword) {
     // Verify connection on startup (non-blocking, don't wait for it)
     transporter.verify((error, success) => {
       if (error) {
-        console.error('❌ Email transporter verification failed:', error.message);
+        const maskedId = emailId ? emailId.replace(/(.{2}).*(@.*)/, "$1***$2") : 'unknown';
+        console.error(`❌ Email transporter verification failed for ${emailHost} (${maskedId}):`, error.message);
         console.warn('⚠️ Email OTP may not work. Verification will be attempted on first send.');
         // Don't set transporter to null - let it try on actual send
       } else {
-        console.log('✅ Email transporter verified successfully');
+        console.log(`✅ Email transporter verified successfully for ${emailHost}`);
       }
     });
   } catch (error) {
