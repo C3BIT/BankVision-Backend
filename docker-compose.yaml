@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build: .
@@ -17,19 +15,7 @@ services:
     networks:
       - mtb-network
 
-  redis:
-    image: redis:7.4-alpine
-    restart: unless-stopped
-    command: redis-server --requirepass VbrmRedis2024Secure
-    volumes:
-      - redis_data:/data
-    networks:
-      - mtb-network
-
 networks:
   mtb-network:
     external: true
     name: mtb-network
-
-volumes:
-  redis_data:
