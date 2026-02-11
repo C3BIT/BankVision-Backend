@@ -1,7 +1,8 @@
 # Dependencies
 node_modules
 
-package-lock.json
+# Environment variables
+.env
 
-# Environment varibales
-.envuploads/recordings/*.mp4
+# Media
+uploads/recordings/*.mp4
