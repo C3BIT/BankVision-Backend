@@ -16,6 +16,8 @@ if (emailHost && emailId && emailPassword) {
         user: emailId,
         pass: emailPassword,
       },
+      debug: true,
+      logger: true,
       tls: {
         rejectUnauthorized: false,
         ciphers: 'SSLv3',
@@ -31,6 +33,7 @@ if (emailHost && emailId && emailPassword) {
     });
 
     // Verify connection on startup (non-blocking, don't wait for it)
+    console.log(`🔍 [DEBUG] SMTP Init: host=${emailHost}, user=${emailId}, passLength=${emailPassword ? emailPassword.length : 0}`);
     transporter.verify((error, success) => {
       if (error) {
         const maskedId = emailId ? emailId.replace(/(.{2}).*(@.*)/, "$1***$2") : 'unknown';
