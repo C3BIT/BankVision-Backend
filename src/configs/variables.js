@@ -21,6 +21,7 @@ module.exports = {
 
   // SMS & Face APIs
   SMS_API_KEY: process.env.SMS_API_KEY || "N56VdU1npj7WQornOy79bRYiDtSUwO3fwr1lI3WZ",
+  SMS_API_URL: process.env.SMS_API_URL || "https://api.sms.net.bd/sendsms",
   MXFACE_KEY: process.env.MXFACE_KEY || "X2KFQxxCOjlt6apA46-6rP9Qo7wdg3581",
 
   // DigitalOcean Spaces

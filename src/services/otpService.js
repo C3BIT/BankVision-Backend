@@ -1,6 +1,6 @@
 const { otpCache } = require("../utils/otpCache");
 const { transporter } = require("../configs/mail_smtp");
-const { emailHost, emailPort, emailId, emailPassword, SMS_API_KEY } = require("../configs/variables");
+const { emailHost, emailPort, emailId, emailPassword, SMS_API_KEY, SMS_API_URL } = require("../configs/variables");
 const { generateOTP } = require("../utils/otpCode");
 const axios = require("axios");
 
@@ -8,7 +8,6 @@ const OTP_EXPIRY_TIME = 180;
 const OTP_SUBJECT = "Verification OTP Code";
 const EMAIL_TEMPLATE = "otpVerification";
 const EMAIL_SENDER = `"C3BIT OTP" <${emailId}>`;
-const SMS_API_URL = "https://api.sms.net.bd/sendsms";
 
 const sendOTP = async (receiverEmail) => {
   if (!receiverEmail || typeof receiverEmail !== "string") {
@@ -70,7 +69,7 @@ const sendOTP = async (receiverEmail) => {
 
       // Provide specific error messages
       let errorMessage = 'Email service unavailable';
-      
+
       if (mailError.code === 'EAUTH') {
         errorMessage = 'Email authentication failed. Please check email credentials.';
       } else if (mailError.code === 'ECONNECTION' || mailError.code === 'ETIMEDOUT') {
@@ -95,17 +94,17 @@ const sendOTP = async (receiverEmail) => {
     }
   } catch (error) {
     console.error(`❌ OTP Email failed for ${receiverEmail}:`, error.message);
-    
+
     // If error already has status, preserve it
     if (error.status) {
       throw error;
     }
-    
+
     // Provide more helpful error messages with proper status codes
     const newError = new Error();
     newError.status = 400; // Default to Bad Request
     newError.error = { code: 40015 }; // Custom error code
-    
+
     if (error.message.includes('Invalid login') || error.message.includes('authentication')) {
       newError.message = "Email service authentication failed. Please use phone verification or contact support.";
     } else if (error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
@@ -118,7 +117,7 @@ const sendOTP = async (receiverEmail) => {
     } else {
       newError.message = `Failed to send verification code: ${error.message}`;
     }
-    
+
     throw newError;
   }
 };
