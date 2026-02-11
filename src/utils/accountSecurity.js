@@ -2,7 +2,7 @@
  * Account Security Utilities
  * Handles account lockout and password history
  */
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 // Configuration
 const SECURITY_CONFIG = {

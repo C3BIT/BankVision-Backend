@@ -1,4 +1,4 @@
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Admin } = require('../models/Admin');
 const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog } = require('../models');

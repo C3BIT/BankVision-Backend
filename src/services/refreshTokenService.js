@@ -4,7 +4,7 @@
  */
 
 const crypto = require('crypto');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { RefreshToken } = require('../models/RefreshToken');
 const { Op } = require('sequelize');
 

@@ -91,7 +91,7 @@ const verifyTOTP = (token, secret, window = 1) => {
  * @returns {object} - { valid, remainingCodes }
  */
 const verifyBackupCode = async (code, backupCodes) => {
-  const bcrypt = require('bcrypt');
+  const bcrypt = require('bcryptjs');
 
   if (!code || !backupCodes || backupCodes.length === 0) {
     return { valid: false, remainingCodes: backupCodes };
@@ -169,9 +169,9 @@ const generateTOTPToken = (secret, timeSlice) => {
 
   const offset = hash[hash.length - 1] & 0x0f;
   const binary = ((hash[offset] & 0x7f) << 24) |
-                 ((hash[offset + 1] & 0xff) << 16) |
-                 ((hash[offset + 2] & 0xff) << 8) |
-                 (hash[offset + 3] & 0xff);
+    ((hash[offset + 1] & 0xff) << 16) |
+    ((hash[offset + 2] & 0xff) << 8) |
+    (hash[offset + 3] & 0xff);
 
   const otp = binary % 1000000;
   return otp.toString().padStart(6, '0');
@@ -183,7 +183,7 @@ const generateTOTPToken = (secret, timeSlice) => {
  * @returns {Promise<array>} - Array of hashed backup codes
  */
 const generateBackupCodes = async (count = 8) => {
-  const bcrypt = require('bcrypt');
+  const bcrypt = require('bcryptjs');
   const codes = [];
   const plainCodes = [];
 
