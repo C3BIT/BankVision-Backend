@@ -61,6 +61,10 @@ const MOCK_CBS_LOANS = {
   ]
 };
 
+// Profile image URL base
+const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "http://localhost:3000";
+const PROFILE_IMAGE_BASE = `${MINIO_PUBLIC_URL}/uploads/profiles`;
+
 const MOCK_CBS_CUSTOMERS = {
   // Rizwan Riyad - Business Owner with multiple accounts, premium cards, and loans
   "01819054224": [
@@ -71,7 +75,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Rizwan Riyad",
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/rizwan_riyad.jpeg",
+      profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -84,7 +88,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Rizwan Riyad",
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/rizwan_riyad.jpeg",
+      profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -100,7 +104,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Iftekhar Ucchash Ahmed",
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/iftekhar_ucchash.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -113,7 +117,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Iftekhar Ucchash Ahmed",
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/iftekhar_ucchash.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -129,7 +133,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Zia Uddin Muhammad Tarek",
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/tarek_raihan.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -142,7 +146,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Zia Uddin Muhammad Tarek",
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/tarek_raihan.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -158,7 +162,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Nafiz Ahmed",
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/nafiz_ahmed.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",
@@ -174,7 +178,7 @@ const MOCK_CBS_CUSTOMERS = {
       name: "Nafiz Ahmed",
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
-      profileImage: "http://host.docker.internal:3000/uploads/profiles/nafiz_ahmed.png",
+      profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",

@@ -15,14 +15,31 @@ const path = require("path");
 
 // Helper to determine if a URL is local and return the absolute file path
 const getLocalFilePath = (url) => {
+  if (!url) return null;
+
   const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "";
-  // Check if URL starts with our public URL
-  if (url && MINIO_PUBLIC_URL && url.startsWith(MINIO_PUBLIC_URL)) {
-    const filename = url.split("/").pop();
-    if (filename) {
-      return path.resolve(__dirname, "../../uploads", filename);
+
+  // 1. Check if URL starts with our public URL (Standard Case)
+  if (MINIO_PUBLIC_URL && url.startsWith(MINIO_PUBLIC_URL)) {
+    // Extract everything after our public URL
+    const relativePart = url.replace(MINIO_PUBLIC_URL, "");
+    // Remove leading slash if any before joining
+    const cleanRelativePath = relativePart.startsWith('/') ? relativePart.slice(1) : relativePart;
+
+    // If it's just 'uploads/filename', resolve it
+    if (cleanRelativePath.startsWith('uploads/')) {
+      return path.resolve(__dirname, "../../", cleanRelativePath);
     }
   }
+
+  // 2. Fallback: Robust detection for any URL containing '/uploads/' 
+  // This catches legacy host.docker.internal or other variations
+  if (url.includes("/uploads/")) {
+    const parts = url.split("/uploads/");
+    const relativePath = parts[parts.length - 1]; // Get everything after /uploads/
+    return path.resolve(__dirname, "../../uploads", relativePath);
+  }
+
   return null;
 };
 
