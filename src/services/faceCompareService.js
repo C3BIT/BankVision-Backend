@@ -162,14 +162,25 @@ const compareFacesByOpenCV = async (imagePath1, imagePath2) => {
       message: result.message,
     };
   } catch (error) {
-    console.error(`[OpenCV] Face comparison error:`, error.message);
-
-    // If OpenCV service is unavailable, return error
-    if (error.code === "ECONNREFUSED") {
-      throw new Error(`OpenCV face service is unreachable at ${OPENCV_URL}. Verify it is deployed and on the same network.`);
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      // that falls out of the range of 2xx
+      const status = error.response.status;
+      const data = error.response.data;
+      console.error(`[OpenCV] Face Service returned error ${status}:`, data);
+      throw new Error(`Face Service Error (${status}): ${data.detail || JSON.stringify(data)}`);
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error(`[OpenCV] No response from Face Service at ${OPENCV_URL}:`, error.message);
+      if (error.code === "ECONNREFUSED") {
+        throw new Error(`Face Service is unreachable at ${OPENCV_URL}. Verify the service name and network in Coolify.`);
+      }
+      throw new Error(`Face Service Timeout or Network Error: ${error.message}`);
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error(`[OpenCV] Error setting up comparison request:`, error.message);
+      throw error;
     }
-
-    throw error;
   }
 };
 
@@ -187,6 +198,8 @@ const checkOpenCVHealth = async () => {
     return {
       healthy: false,
       error: error.message,
+      targetUrl: OPENCV_URL,
+      tip: "Ensure OPENCV_SERVICE_URL is set to the correct FQDN or service name in Coolify."
     };
   }
 };
