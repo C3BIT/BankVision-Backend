@@ -48,8 +48,28 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
     // Optimization: Read directly from disk if local
     const localPath = getLocalFilePath(imageUrl);
     if (localPath) {
-      const buffer = await fs.readFile(localPath);
-      return buffer.toString("base64");
+      try {
+        const buffer = await fs.readFile(localPath);
+        return buffer.toString("base64");
+      } catch (err) {
+        if (err.code === "ENOENT") {
+          console.warn(`⚠️ Local file not found in uploads: ${localPath}. Checking mock assets fallback...`);
+          // Extract the filename from the end of the URL
+          const filename = imageUrl.split("/").pop();
+          if (filename) {
+            const mockAssetPath = path.resolve(__dirname, "../assets/mock-profiles", filename);
+            try {
+              const mockBuffer = await fs.readFile(mockAssetPath);
+              console.log(`✅ Found mock asset fallback: ${mockAssetPath}`);
+              return mockBuffer.toString("base64");
+            } catch (mockErr) {
+              console.error(`❌ Mock asset fallback also failed: ${mockAssetPath}`);
+              throw err; // Throw the original ENOENT error
+            }
+          }
+        }
+        throw err;
+      }
     }
 
     const response = await axios.get(imageUrl, {
