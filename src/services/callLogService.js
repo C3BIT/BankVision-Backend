@@ -261,6 +261,7 @@ const getCallLogs = async (filters = {}, pagination = {}) => {
  */
 const getCallStatistics = async (filters = {}) => {
   try {
+    const { fn, col } = require("sequelize");
     const where = {};
 
     if (filters.managerEmail) {
@@ -272,84 +273,86 @@ const getCallStatistics = async (filters = {}) => {
       };
     }
 
+    // Get basic counts
     const totalCalls = await CallLog.count({ where });
-    const completedCalls = await CallLog.count({
-      where: { ...where, status: "completed" },
-    });
-    const missedCalls = await CallLog.count({
-      where: { ...where, status: "missed" },
-    });
-    const cancelledCalls = await CallLog.count({
-      where: { ...where, status: "cancelled" },
+    const statusCounts = await CallLog.findAll({
+      where,
+      attributes: [
+        'status',
+        [fn('COUNT', col('id')), 'count']
+      ],
+      group: ['status'],
+      raw: true
     });
 
-    // Calculate average duration for completed calls
-    const completedCallsData = await CallLog.findAll({
+    const counts = {
+      completed: 0,
+      missed: 0,
+      cancelled: 0
+    };
+
+    statusCounts.forEach(sc => {
+      if (counts.hasOwnProperty(sc.status)) {
+        counts[sc.status] = parseInt(sc.count);
+      }
+    });
+
+    // Calculate average duration for completed calls using DB aggregation
+    const durationStats = await CallLog.findOne({
       where: { ...where, status: "completed", duration: { [Op.not]: null } },
-      attributes: ["duration"],
+      attributes: [
+        [fn('SUM', col('duration')), 'totalDuration'],
+        [fn('AVG', col('duration')), 'avgDuration'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      raw: true
     });
 
-    const totalDuration = completedCallsData.reduce(
-      (sum, call) => sum + (call.duration || 0),
-      0
-    );
-    const avgDuration =
-      completedCallsData.length > 0
-        ? Math.round(totalDuration / completedCallsData.length)
-        : 0;
+    const totalDuration = parseInt(durationStats?.totalDuration || 0);
+    const avgDuration = Math.round(parseFloat(durationStats?.avgDuration || 0));
 
-    // Calculate CSAT score from feedback (convert 1-5 rating to 1-10 scale)
-    // Use the same date range as call logs to ensure consistency
+    // Calculate CSAT score from feedback
     const feedbackWhere = {};
     if (filters.managerEmail) {
       feedbackWhere.managerEmail = filters.managerEmail;
     }
     if (filters.startDate && filters.endDate) {
-      // Convert dates to proper Date objects and ensure inclusive range
-      // Add 1 second to endDate to include the entire end day (handles timezone issues)
       const startDate = new Date(filters.startDate);
       const endDate = new Date(filters.endDate);
-      // Extend end date by 1 day to include all feedback from the end date day
-      // This ensures we capture feedback created throughout the entire day in Bangladesh timezone
       const extendedEndDate = new Date(endDate);
       extendedEndDate.setDate(extendedEndDate.getDate() + 1);
-      
+
       feedbackWhere.createdAt = {
         [Op.gte]: startDate,
-        [Op.lt]: extendedEndDate, // Use less than to exclude next day
+        [Op.lt]: extendedEndDate,
       };
-      
-      console.log(`📊 CSAT Query - Date range: ${startDate.toISOString()} to ${extendedEndDate.toISOString()}, Manager: ${filters.managerEmail || 'all'}`);
     }
 
-    const feedbackData = await CustomerFeedback.findAll({
+    const feedbackStats = await CustomerFeedback.findOne({
       where: feedbackWhere,
-      attributes: ["rating", "createdAt", "managerEmail"],
+      attributes: [
+        [fn('AVG', col('rating')), 'avgRating'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      raw: true
     });
-    
-    console.log(`📊 CSAT Query - Found ${feedbackData.length} feedback records for date range`);
 
-    let csatScore = 7; // Default score if no feedback
-    if (feedbackData.length > 0) {
-      const totalRating = feedbackData.reduce((sum, fb) => sum + (fb.rating || 0), 0);
-      const avgRating = totalRating / feedbackData.length; // Average 1-5
-      csatScore = Math.round((avgRating / 5) * 10); // Convert to 1-10 scale
-      console.log(`📊 CSAT Calculation - Ratings: ${feedbackData.map(f => f.rating).join(', ')}, Average: ${avgRating.toFixed(2)}, CSAT: ${csatScore}/10`);
-    } else {
-      console.log(`📊 CSAT Calculation - No feedback found, using default: 7/10`);
-    }
+    const avgRating = parseFloat(feedbackStats?.avgRating || 0);
+    const feedbackCount = parseInt(feedbackStats?.count || 0);
+
+    // Convert 1-5 rating to 1-10 scale
+    const csatScore = feedbackCount > 0 ? Math.round((avgRating / 5) * 10) : 7;
 
     return {
       totalCalls,
-      completedCalls,
-      missedCalls,
-      cancelledCalls,
-      completionRate:
-        totalCalls > 0 ? Math.round((completedCalls / totalCalls) * 100) : 0,
+      completedCalls: counts.completed,
+      missedCalls: counts.missed,
+      cancelledCalls: counts.cancelled,
+      completionRate: totalCalls > 0 ? Math.round((counts.completed / totalCalls) * 100) : 0,
       avgDuration,
       totalTalkTime: totalDuration,
       csatScore,
-      feedbackCount: feedbackData.length,
+      feedbackCount,
     };
   } catch (error) {
     console.error("❌ Error fetching call statistics:", error);

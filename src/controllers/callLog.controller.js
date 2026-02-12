@@ -45,39 +45,53 @@ const getCallStatistics = async (req, res) => {
 
     const filters = {};
     if (managerEmail) filters.managerEmail = managerEmail;
-    
+
     // Handle date filtering with Bangladesh timezone (UTC+6)
     if (startDate && endDate) {
-      // Ensure dates are properly parsed and extended to cover full day
+      // Ensure dates are properly parsed
       const start = new Date(startDate);
       const end = new Date(endDate);
-      
-      // Extend end date to include the entire day (add 1 day and subtract 1ms)
-      // This ensures we capture all feedback from the end date day
-      const extendedEnd = new Date(end);
-      extendedEnd.setDate(extendedEnd.getDate() + 1);
-      extendedEnd.setMilliseconds(extendedEnd.getMilliseconds() - 1);
-      
-      filters.startDate = start.toISOString();
-      filters.endDate = extendedEnd.toISOString();
-      
-      console.log(`📊 Statistics request - Date range: ${filters.startDate} to ${filters.endDate}, Manager: ${managerEmail || 'all'}`);
+
+      // Validate that dates are actually valid to prevent toISOString() crashes
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        console.warn(`⚠️ Invalid date format received: startDate=${startDate}, endDate=${endDate}`);
+        // Fallback to today if dates are invalid
+        const now = new Date();
+        const bangladeshOffset = 6 * 60 * 60 * 1000;
+        const today = new Date(now.getTime() + bangladeshOffset);
+        today.setUTCHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+        filters.startDate = new Date(today.getTime() - bangladeshOffset).toISOString();
+        filters.endDate = new Date(tomorrow.getTime() - bangladeshOffset).toISOString();
+      } else {
+        // Extend end date to include the entire day (add 1 day and subtract 1ms)
+        const extendedEnd = new Date(end);
+        extendedEnd.setUTCDate(extendedEnd.getUTCDate() + 1);
+        extendedEnd.setUTCMilliseconds(extendedEnd.getUTCMilliseconds() - 1);
+
+        filters.startDate = start.toISOString();
+        filters.endDate = extendedEnd.toISOString();
+
+        console.log(`📊 Statistics request - Date range: ${filters.startDate} to ${filters.endDate}, Manager: ${managerEmail || 'all'}`);
+      }
     } else {
       // If no dates provided, calculate "today" in Bangladesh timezone (UTC+6)
       const now = new Date();
       const bangladeshOffset = 6 * 60 * 60 * 1000; // UTC+6
       const bangladeshTime = new Date(now.getTime() + bangladeshOffset);
-      
+
       const today = new Date(bangladeshTime);
       today.setUTCHours(0, 0, 0, 0);
-      
+
       const tomorrow = new Date(today);
       tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      
+
       // Convert back to UTC
       filters.startDate = new Date(today.getTime() - bangladeshOffset).toISOString();
       filters.endDate = new Date(tomorrow.getTime() - bangladeshOffset).toISOString();
-      
+
       console.log(`📊 Statistics request - Using today in Bangladesh timezone: ${filters.startDate} to ${filters.endDate}`);
     }
 
