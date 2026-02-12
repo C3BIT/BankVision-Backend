@@ -24,6 +24,11 @@ module.exports = {
   SMS_API_URL: process.env.SMS_API_URL || "https://api.sms.net.bd/sendsms",
   MXFACE_KEY: process.env.MXFACE_KEY,
 
+  // Storage config
+  STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || "s3",
+  MINIO_BUCKET: process.env.MINIO_BUCKET || "vbrm",
+  MINIO_PUBLIC_URL: process.env.MINIO_PUBLIC_URL,
+
   // DigitalOcean Spaces
   SPACES_BUCKET: process.env.SPACES_BUCKET,
   SPACES_KEY: process.env.SPACES_KEY,

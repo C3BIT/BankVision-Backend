@@ -4,8 +4,15 @@ const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
 
 // MinIO Configuration
+// MinIO Configuration
 const BUCKET_NAME = process.env.MINIO_BUCKET || "vbrm";
-const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL;
+let MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "";
+
+// Trim trailing slash from public URL
+if (MINIO_PUBLIC_URL.endsWith('/')) {
+  MINIO_PUBLIC_URL = MINIO_PUBLIC_URL.slice(0, -1);
+}
+
 const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || "s3";
 
 console.log('🗄️ Storage Configuration:', {
@@ -20,17 +27,32 @@ const imageFileUpload = async (file) => {
     const key = `uploads/${fileName}`;
 
     if (STORAGE_PROVIDER === "local") {
-      const uploadDir = path.join(__dirname, "../../uploads");
+      const uploadDir = path.resolve(__dirname, "../../uploads");
+
+      // Ensure directory exists
+      try {
+        await fs.mkdir(uploadDir, { recursive: true });
+      } catch (err) {
+        if (err.code !== 'EEXIST') {
+          console.error('❌ Failed to create local upload directory:', err);
+          throw err;
+        }
+      }
+
       const filePath = path.join(uploadDir, fileName);
 
       console.log('📂 Storing file locally:', {
-        fileName: file.originalname,
+        originalName: file.originalname,
         size: file.size,
-        path: filePath
+        savePath: filePath
       });
 
       await fs.writeFile(filePath, file.buffer);
-      const fileUrl = `${MINIO_PUBLIC_URL}/uploads/${fileName}`;
+
+      // Ensure MINIO_PUBLIC_URL is present, otherwise fallback to relative path (not ideal for clients)
+      const baseUrl = MINIO_PUBLIC_URL || '';
+      const fileUrl = `${baseUrl}/uploads/${fileName}`;
+
       console.log('✅ File stored locally successfully:', fileUrl);
       return fileUrl;
     }

@@ -11,19 +11,31 @@ const SUBSCRIPTION_KEY = MXFACE_KEY;
 const OPENCV_URL = OPENCV_SERVICE_URL || "http://localhost:5097";
 
 const encodeImageToBase64FromUrl = async (imageUrl) => {
-  const response = await axios.get(imageUrl, {
-    responseType: "arraybuffer",
-    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-  });
-  return Buffer.from(response.data, "binary").toString("base64");
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: "arraybuffer",
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      timeout: 10000, // 10s timeout for image download
+    });
+    return Buffer.from(response.data, "binary").toString("base64");
+  } catch (error) {
+    console.error(`❌ Failed to fetch image for encoding: ${imageUrl}`, error.message);
+    throw new Error(`Could not fetch image for face verification: ${imageUrl}. Error: ${error.message}`);
+  }
 };
 
 const impageBufferFromUrl = async (imageUrl) => {
-  const response = await axios.get(imageUrl, {
-    responseType: "arraybuffer",
-    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-  });
-  return response.data;
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: "arraybuffer",
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      timeout: 10000,
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Failed to fetch image buffer: ${imageUrl}`, error.message);
+    throw new Error(`Could not download image buffer: ${imageUrl}. Error: ${error.message}`);
+  }
 };
 
 /**
