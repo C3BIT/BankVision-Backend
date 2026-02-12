@@ -84,7 +84,17 @@ const Admin = sequelize.define('Admin', {
   }
 }, {
   tableName: 'admins',
-  timestamps: true
+  timestamps: true,
+  hooks: {
+    beforeCreate: (admin) => {
+      admin.passwordChangedAt = new Date();
+    },
+    beforeUpdate: (admin) => {
+      if (admin.changed('password')) {
+        admin.passwordChangedAt = new Date();
+      }
+    }
+  }
 });
 
 module.exports = { Admin };

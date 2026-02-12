@@ -111,6 +111,13 @@ const loginAdmin = async (req, res) => {
 
     // Update last login
     admin.lastLogin = new Date();
+
+    // Safety check: Initialize passwordChangedAt if it's null (for migrated/legacy accounts)
+    if (!admin.passwordChangedAt) {
+      console.log(`ℹ️ Initializing passwordChangedAt for admin: ${admin.email}`);
+      admin.passwordChangedAt = admin.createdAt || new Date();
+    }
+
     await admin.save();
 
     // Check password expiry (90-day rotation policy)
