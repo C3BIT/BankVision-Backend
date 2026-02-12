@@ -2,12 +2,12 @@ const { EgressClient, EncodedFileOutput, S3Upload, RoomCompositeEgressRequest } 
 const { Recording } = require('../models');
 
 // LiveKit/OpenVidu configuration
-const LIVEKIT_URL = process.env.LIVEKIT_URL || 'wss://openvidu.ucchash4vc.xyz';
+const LIVEKIT_URL = process.env.LIVEKIT_URL;
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'vbrm_openvidu_key';
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'vbrm_openvidu_secret_2024_secure_key';
 
 // MinIO configuration (from OpenVidu setup)
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || 'http://openvidu-minio:9000';
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'vbrmminioadmin';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'VbrmMinio2024SecureKey';
 const MINIO_BUCKET = process.env.MINIO_BUCKET || 'recordings';

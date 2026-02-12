@@ -25,7 +25,7 @@ const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
 const OTP = require("./otpService");
 
-const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN || "openvidu.ucchash4vc.xyz";
+const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN;
 const CALL_TIMEOUT = 20000; // 20 seconds - banking industry standard
 const activeCustomerCalls = {};
 const rejectedManagers = {};
@@ -54,9 +54,9 @@ const handleSocketConnection = async (socket, io) => {
       await addUserInCache(phone, role, socketId, name, email);
       console.log(
         `✅ User connected: ${socketId} | Role: ${role}` +
-          (phone ? ` | Phone: ${phone}` : "") +
-          (name ? ` | Name: ${name}` : "") +
-          (email ? ` | Email: ${email}` : "")
+        (phone ? ` | Phone: ${phone}` : "") +
+        (name ? ` | Name: ${name}` : "") +
+        (email ? ` | Email: ${email}` : "")
       );
 
       // Update session with socket ID for managers (for force-logout feature)
@@ -99,10 +99,10 @@ const handleSocketConnection = async (socket, io) => {
       // Check if verification phone/email is in bank database (for internal vs external determination)
       let isInternal = false;
       let verificationPhoneOrEmail = null;
-      
+
       if (verificationInfo && verificationInfo.phoneOrEmail) {
         verificationPhoneOrEmail = verificationInfo.phoneOrEmail;
-        
+
         // Check if verification phone/email exists in bank database
         try {
           if (verificationInfo.method === 'phone') {
@@ -1572,7 +1572,7 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
-      
+
       if (!customerSocketId) {
         console.error(`❌ No customer socket ID found for ${customerPhone}`);
         return socket.emit("manager:face-verification-error", {
@@ -3086,7 +3086,7 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
-      
+
       // Clear any existing timeout
       if (activeCustomerCalls[customerPhone].faceVerificationTimeout) {
         clearTimeout(activeCustomerCalls[customerPhone].faceVerificationTimeout);
@@ -3704,8 +3704,8 @@ const handleSocketConnection = async (socket, io) => {
 
       console.log(
         `❌ User disconnected: ${socketId} | Role: ${role}` +
-          (phone ? ` | Phone: ${phone}` : "") +
-          (email ? ` | Email: ${email}` : "")
+        (phone ? ` | Phone: ${phone}` : "") +
+        (email ? ` | Email: ${email}` : "")
       );
 
       if (role === "customer") {

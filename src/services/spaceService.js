@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 
 // MinIO Configuration
 const BUCKET_NAME = process.env.MINIO_BUCKET || "vbrm";
-const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "https://minio.ucchash4vc.xyz";
+const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL;
 const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || "s3";
 
 console.log('🗄️ Storage Configuration:', {

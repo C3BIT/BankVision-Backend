@@ -63,7 +63,7 @@ function startCallQueueWorker(io) {
         .digest('hex')
         .slice(0, 16);
 
-      const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN || 'openvidu.ucchash4vc.xyz';
+      const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN;
       const callRoomLink = `https://${OPENVIDU_DOMAIN}/${roomId}`;
 
       // Update manager status to busy
