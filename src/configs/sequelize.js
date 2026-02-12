@@ -12,16 +12,5 @@ const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASS, {
   isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
 });
 
-(async () => {
-  try {
-    await sequelize.authenticate();
-    console.log("✅ Database connected successfully.");
-    await sequelize.sync({ force: false });
-    console.log("✅ Tables synced successfully.");
-  } catch (error) {
-    console.error("❌ Unable to connect to the database:", error);
-  }
-})();
-
 console.log("📦 configs/sequelize.js module loaded. Exporting sequelize instance.");
 module.exports = sequelize;

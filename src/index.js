@@ -11,6 +11,25 @@ const { requestIdMiddleware } = require("./middlewares/requestIdMiddleware.js");
 const { initializeWebSocket } = require("./services/websocketService.js");
 const app = express();
 
+// Database Synchronization
+const models = require("./models/index.js");
+const { syncAllCriticalModels } = require("./utils/dbSync.js");
+const sequelize = models.sequelize;
+
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ Database connected successfully.");
+    await sequelize.sync({ force: false });
+    console.log("✅ Tables synced successfully.");
+
+    // Safety check for missing columns (fixes "Unknown column" errors)
+    await syncAllCriticalModels(sequelize);
+  } catch (error) {
+    console.error("❌ Database initialization failed:", error);
+  }
+})();
+
 // CORS configuration - whitelist allowed origins only
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
