@@ -15,7 +15,7 @@ const setAuthCookie = (res, token, maxAge = 8 * 60 * 60 * 1000) => {
     sameSite: 'none',      // Allow cross-subdomain (manager.X → api.X)
     maxAge: maxAge,        // Cookie expiration
     path: '/',             // Available for all routes
-    domain: process.env.COOKIE_DOMAIN || '.ucchash4vc.xyz', // Share across all subdomains
+    domain: process.env.COOKIE_DOMAIN, // Share across all subdomains
   });
 };
 
@@ -29,7 +29,7 @@ const clearAuthCookie = (res) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'none',
     path: '/',
-    domain: process.env.COOKIE_DOMAIN || '.ucchash4vc.xyz',
+    domain: process.env.COOKIE_DOMAIN,
   });
 };
 

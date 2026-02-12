@@ -14,7 +14,7 @@ const app = express();
 // CORS configuration - whitelist allowed origins only
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5095', 'http://localhost:5096', 'http://localhost:5097'];
+  : [];
 
 const corsOptions = {
   origin: (origin, callback) => {

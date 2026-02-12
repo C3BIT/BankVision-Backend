@@ -13,32 +13,32 @@ module.exports = {
   emailPassword: process.env.EMAIL_PASSWORD,
 
   // DB config
-  DB_NAME: process.env.DB_NAME || "vbrm",
-  DB_USER: process.env.DB_USER || "doctel",
-  DB_PASS: process.env.DB_PASS || "",
-  DB_HOST: process.env.DB_HOST || "localhost",
+  DB_NAME: process.env.DB_NAME,
+  DB_USER: process.env.DB_USER,
+  DB_PASS: process.env.DB_PASS,
+  DB_HOST: process.env.DB_HOST,
   DB_PORT: process.env.DB_PORT || 3306,
 
   // SMS & Face APIs
-  SMS_API_KEY: process.env.SMS_API_KEY || "N56VdU1npj7WQornOy79bRYiDtSUwO3fwr1lI3WZ",
+  SMS_API_KEY: process.env.SMS_API_KEY,
   SMS_API_URL: process.env.SMS_API_URL || "https://api.sms.net.bd/sendsms",
-  MXFACE_KEY: process.env.MXFACE_KEY || "X2KFQxxCOjlt6apA46-6rP9Qo7wdg3581",
+  MXFACE_KEY: process.env.MXFACE_KEY,
 
   // DigitalOcean Spaces
-  SPACES_BUCKET: process.env.SPACES_BUCKET || "doctel",
-  SPACES_KEY: process.env.SPACES_KEY || "DO00XAMFRCBZK7E68E8C",
-  SPACES_SECRET: process.env.SPACES_SECRET || "Cqu2oHKGEVk1MULCJMs6yaq1sNHqlcVG5CLyA3BZZqE",
+  SPACES_BUCKET: process.env.SPACES_BUCKET,
+  SPACES_KEY: process.env.SPACES_KEY,
+  SPACES_SECRET: process.env.SPACES_SECRET,
 
   // AWS
-  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID || "AKIA5DZ7OQA5SVDBU45L",
-  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY || "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",
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
   AWS_REGION: process.env.AWS_REGION || "us-east-1",
 
   // OpenCV Face Service
-  OPENCV_SERVICE_URL: process.env.OPENCV_SERVICE_URL || "http://localhost:5097",
+  OPENCV_SERVICE_URL: process.env.OPENCV_SERVICE_URL,
 
   // Redis
-  REDIS_HOST: process.env.REDIS_HOST || "localhost",
+  REDIS_HOST: process.env.REDIS_HOST,
   REDIS_PORT: process.env.REDIS_PORT || 6379,
-  REDIS_PASSWORD: process.env.REDIS_PASSWORD || undefined,
+  REDIS_PASSWORD: process.env.REDIS_PASSWORD,
 };
