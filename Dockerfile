@@ -32,10 +32,10 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/package.json ./
 
 # Create uploads directory
-RUN mkdir -p /app/uploads && chown -R node:node /app
+RUN mkdir -p /app/uploads
 
-# Switch to non-root user
-USER node
+# Switch to non-root user (Disabled to fix EACCES on volume mounts)
+# USER node
 
 # Expose port
 EXPOSE 3000

@@ -88,6 +88,21 @@ const imageFileUpload = async (file) => {
     console.log('✅ File uploaded successfully to MinIO:', fileUrl);
     return fileUrl;
   } catch (error) {
+    if (error.code === 'EACCES') {
+      try {
+        const uploadDir = path.resolve(__dirname, "../../uploads");
+        const stats = await fs.stat(uploadDir);
+        console.error('🕵️ Directory Diagnostic:', {
+          path: uploadDir,
+          mode: stats.mode.toString(8),
+          uid: stats.uid,
+          gid: stats.gid,
+          currentUser: process.getuid ? `${process.getuid()}:${process.getgid()}` : 'unknown'
+        });
+      } catch (statErr) {
+        console.error('🕵️ Directory Diagnostic failed:', statErr.message);
+      }
+    }
     console.error("❌ Error processing file upload:", error);
     throw new Error("File upload failed: " + error.message);
   }
