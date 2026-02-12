@@ -371,6 +371,7 @@ queueEvents.on('removed', ({ jobId }) => {
 });
 
 module.exports = {
+  connection,
   callQueue,
   queueEvents,
   addCustomerToQueue,

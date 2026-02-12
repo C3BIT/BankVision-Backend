@@ -19,9 +19,13 @@ const getHealth = async (req, res) => {
 
     // Check Redis connection via BullMQ
     let redisStatus = "connected";
+    const { connection } = require('../services/callQueueService');
     try {
-      const client = await callQueue.client;
-      await client.ping();
+      if (connection) {
+        await connection.ping();
+      } else {
+        redisStatus = "disconnected";
+      }
     } catch (err) {
       console.error("Redis health check failed:", err);
       redisStatus = "disconnected";
