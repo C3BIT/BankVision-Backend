@@ -11,6 +11,9 @@ const { requestIdMiddleware } = require("./middlewares/requestIdMiddleware.js");
 const { initializeWebSocket } = require("./services/websocketService.js");
 const app = express();
 
+// Trust reverse proxy (Coolify/Traefik) for HTTPS/Secure cookies
+app.set('trust proxy', 1);
+
 // Database Synchronization
 const models = require("./models/index.js");
 const { syncAllCriticalModels } = require("./utils/dbSync.js");

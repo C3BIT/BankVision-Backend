@@ -156,9 +156,8 @@ const loginAdmin = async (req, res) => {
         email: admin.email,
         role: admin.role,
         profileImage: admin.profileImage
-      }
-      // Note: Token now sent via httpOnly cookie, not in response body
-      // For backward compatibility during migration, can temporarily include token
+      },
+      token: token // Restoring for backward compatibility with frontend
     };
 
     // Add password expiry warning if applicable
