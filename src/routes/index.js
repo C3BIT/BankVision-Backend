@@ -76,4 +76,15 @@ const defaultRoutes = [
 defaultRoutes.forEach((route) => {
   router.use(route.path, route.route);
 });
+
+// Root API handler to prevent 404 on /api/
+router.get("/", (req, res) => {
+  res.status(200).json({
+    status: "success",
+    message: "BankVision API is reachable",
+    timestamp: new Date().toISOString(),
+    version: "1.0.0"
+  });
+});
+
 module.exports = router;
