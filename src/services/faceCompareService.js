@@ -10,12 +10,35 @@ const SUBSCRIPTION_KEY = MXFACE_KEY;
 // OpenCV Service URL (default to local Docker)
 const OPENCV_URL = OPENCV_SERVICE_URL || "http://localhost:5097";
 
+const fs = require("fs").promises;
+const path = require("path");
+
+// Helper to determine if a URL is local and return the absolute file path
+const getLocalFilePath = (url) => {
+  const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "";
+  // Check if URL starts with our public URL
+  if (url && MINIO_PUBLIC_URL && url.startsWith(MINIO_PUBLIC_URL)) {
+    const filename = url.split("/").pop();
+    if (filename) {
+      return path.resolve(__dirname, "../../uploads", filename);
+    }
+  }
+  return null;
+};
+
 const encodeImageToBase64FromUrl = async (imageUrl) => {
   try {
+    // Optimization: Read directly from disk if local
+    const localPath = getLocalFilePath(imageUrl);
+    if (localPath) {
+      const buffer = await fs.readFile(localPath);
+      return buffer.toString("base64");
+    }
+
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
       httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-      timeout: 10000, // 10s timeout for image download
+      timeout: 15000, // 15s timeout
     });
     return Buffer.from(response.data, "binary").toString("base64");
   } catch (error) {
@@ -26,10 +49,16 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
 
 const impageBufferFromUrl = async (imageUrl) => {
   try {
+    // Optimization: Read directly from disk if local
+    const localPath = getLocalFilePath(imageUrl);
+    if (localPath) {
+      return await fs.readFile(localPath);
+    }
+
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
       httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-      timeout: 10000,
+      timeout: 15000,
     });
     return response.data;
   } catch (error) {
@@ -98,18 +127,23 @@ const compareFacesByAWS = async (imagePath1, imagePath2) => {
  */
 const compareFacesByOpenCV = async (imagePath1, imagePath2) => {
   try {
-    console.log(`[OpenCV] Comparing faces...`);
-    console.log(`  - Image 1: ${imagePath1.substring(0, 60)}...`);
-    console.log(`  - Image 2: ${imagePath2.substring(0, 60)}...`);
+    console.log(`[OpenCV] Processing face comparison...`);
+
+    // CRITICAL OPTIMIZATION: Convert to base64 in Backend
+    // This removes the dependency on the Face Service needing to "download" from the Backend URL.
+    const encodedImage1 = await encodeImageToBase64FromUrl(imagePath1);
+    const encodedImage2 = await encodeImageToBase64FromUrl(imagePath2);
+
+    console.log(`[OpenCV] Images encoded successfully. Sending to service: ${OPENCV_URL}`);
 
     const response = await axios.post(
       `${OPENCV_URL}/compare`,
       {
-        image1: imagePath1,
-        image2: imagePath2,
+        image1: encodedImage1,
+        image2: encodedImage2,
       },
       {
-        timeout: 30000, // 30 second timeout
+        timeout: 45000, // Increased timeout for heavy processing
         headers: {
           "Content-Type": "application/json",
         },
@@ -132,7 +166,7 @@ const compareFacesByOpenCV = async (imagePath1, imagePath2) => {
 
     // If OpenCV service is unavailable, return error
     if (error.code === "ECONNREFUSED") {
-      throw new Error("OpenCV face service is not running. Please start the Docker container.");
+      throw new Error(`OpenCV face service is unreachable at ${OPENCV_URL}. Verify it is deployed and on the same network.`);
     }
 
     throw error;
