@@ -90,9 +90,10 @@ const handleSocketConnection = async (socket, io) => {
 
       // 🔄 SYNC ACTIVE CALL STATES: Refresh socket IDs for either role on reconnect
       if (role === "customer") {
-        if (activeCustomerCalls[phone]) {
-          console.log(`♻️ Customer ${phone} reconnected - updating call state socketId: ${socketId}`);
-          activeCustomerCalls[phone].customerSocketId = socketId;
+        const normalizedPhone = normalizePhone(phone);
+        if (activeCustomerCalls[normalizedPhone]) {
+          console.log(`♻️ Customer ${normalizedPhone} reconnected - updating call state socketId: ${socketId}`);
+          activeCustomerCalls[normalizedPhone].customerSocketId = socketId;
         }
       } else if (role === "manager" && email) {
         // Find if this manager has any active calls and update their socketId
@@ -630,11 +631,12 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("queue:pick-call", async (data) => {
       if (role !== "manager") return;
 
-      const { customerPhone } = data;
+      const { customerPhone: rawCustomerPhone } = data;
+      const customerPhone = normalizePhone(rawCustomerPhone);
 
       // Get customer from queue before removing
       const queue = await getQueuedCustomers();
-      const queueEntry = queue.find(q => q.customerPhone === customerPhone);
+      const queueEntry = queue.find(q => normalizePhone(q.customerPhone) === customerPhone);
 
       if (!queueEntry) {
         return socket.emit("error", { message: "Customer not found in queue" });
@@ -662,7 +664,8 @@ const handleSocketConnection = async (socket, io) => {
       const callRoom = `room_${customerPhone}_${Date.now()}`;
 
       // Store active call with verification info
-      activeCustomerCalls[customerPhone] = {
+      const normalizedPhone = normalizePhone(customerPhone);
+      activeCustomerCalls[normalizedPhone] = {
         inProgress: false,
         customerSocketId: queueEntry.socketId,
         managerSocketId: socket.id, // CRITICAL: Store manager socket ID for call:ended notification
@@ -670,14 +673,14 @@ const handleSocketConnection = async (socket, io) => {
         currentManagerEmail: email,
         timeout: null,
         startTime: Date.now(),
-        customerPhone: customerPhone,
+        customerPhone: normalizedPhone,
         customerName: queueEntry.customerName || null,
         customerEmail: queueEntry.customerEmail || null,
         callRoom: callRoom,
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
       };
 
-      socket.user.customerPhone = customerPhone;
+      socket.user.customerPhone = normalizedPhone;
 
       // Store manager's previous status before setting to BUSY
       const allManagers = getAllManagers();
@@ -787,8 +790,9 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Clear any active call data
-        if (activeCustomerCalls[phone]) {
-          await clearActiveCustomerCall(phone, io);
+        const normalizedPhone = normalizePhone(phone);
+        if (activeCustomerCalls[normalizedPhone]) {
+          await clearActiveCustomerCall(normalizedPhone, io);
         }
 
         // Notify customer they've left the queue
@@ -819,7 +823,8 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:phone-verification", async (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const rawCustomerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(rawCustomerPhone);
       console.log(
         `🔄 Manager ${email} requesting phone verification for customer ${customerPhone}`
       );
@@ -827,7 +832,7 @@ const handleSocketConnection = async (socket, io) => {
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
         console.log(`📋 Active calls:`, Object.keys(activeCustomerCalls));
-        console.log(`📋 Manager's customerPhone:`, customerPhone);
+        console.log(`📋 Manager's customerPhone (normalized):`, customerPhone);
         return socket.emit("error", {
           message: "No active call with customer",
         });
@@ -873,11 +878,12 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("customer:phone-verified", async (data) => {
       if (role !== "customer") return;
 
-      console.log(`✅ Customer ${phone} verified phone number`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`✅ Customer ${normalizedPhone} verified phone number`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -913,7 +919,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:email-verification", async (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const customerEmail = data.customerEmail;
 
       console.log(
@@ -1006,12 +1012,13 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("customer:verification-cancelled", (data) => {
       if (role !== "customer") return;
 
-      const { phone, verificationType } = data;
-      console.log(`🚫 Customer ${phone} cancelled ${verificationType} verification`);
+      const { phone: rawPhone, verificationType } = data;
+      const normalizedPhone = normalizePhone(rawPhone);
+      console.log(`🚫 Customer ${normalizedPhone} cancelled ${verificationType} verification`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1034,7 +1041,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("change:phone-permission", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(
         `🔄 Manager ${email} requesting phone number change for customer ${customerPhone}`
       );
@@ -1066,11 +1073,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { value } = data;
-      console.log(`🔄 Customer ${phone} typing new phone number: ${value}`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`🔄 Customer ${normalizedPhone} typing new phone number: ${value}`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1098,11 +1106,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { value } = data;
-      console.log(`🔄 Customer ${phone} typing confirm phone number: ${value}`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`🔄 Customer ${normalizedPhone} typing confirm phone number: ${value}`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1129,7 +1138,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-phone-new", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { value } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1150,7 +1159,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-phone-confirm", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { value } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1171,7 +1180,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-email-new", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { value } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1192,7 +1201,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-email-confirm", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { value } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1213,7 +1222,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-address", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { newAddress, addressType } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1235,7 +1244,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-address-change", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { addressType, field, value } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1259,10 +1268,11 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { files } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1285,7 +1295,8 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { fileIndex, files } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
       if (!activeCall || !activeCall.currentManagerEmail) {
         return;
@@ -1313,13 +1324,14 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { accountNumber } = data;
+      const normalizedPhone = normalizePhone(phone);
       console.log(
-        `🔄 Customer ${phone} typing new account number: ${accountNumber}`
+        `🔄 Customer ${normalizedPhone} typing new account number: ${accountNumber}`
       );
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1341,13 +1353,14 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { accountNumber } = data;
+      const normalizedPhone = normalizePhone(phone);
       console.log(
-        `🔄 Customer ${phone} typing confirm account number: ${accountNumber}`
+        `🔄 Customer ${normalizedPhone} typing confirm account number: ${accountNumber}`
       );
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1368,7 +1381,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-account-number-new", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { accountNumber } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1389,7 +1402,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:typing-account-number-confirm", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { accountNumber } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1409,8 +1422,8 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:sent-otp-change-phone", (data) => {
       if (role !== "manager") return;
 
-      const { phone, accountNumber, timestamp } = data;
-      const customerPhone = socket.user.customerPhone;
+      const { phone: rawPhone, accountNumber, timestamp } = data;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
         return socket.emit("error", {
@@ -1432,10 +1445,11 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { newPhoneNumber, accountNumber, timestamp } = data;
+      const normalizedPhone = normalizePhone(phone);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1456,7 +1470,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("change:email-permission", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(
         `🔄 Manager ${email} requesting email change for customer ${customerPhone}`
       );
@@ -1488,11 +1502,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { value } = data;
-      console.log(`🔄 Customer ${phone} typing new email: ${value}`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`🔄 Customer ${normalizedPhone} typing new email: ${value}`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1514,9 +1529,10 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { value } = data;
-      console.log(`🔄 Customer ${phone} typing confirm email: ${value}`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`🔄 Customer ${normalizedPhone} typing confirm email: ${value}`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
         return;
       }
@@ -1538,7 +1554,7 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { email: newEmail, phone: customerMobile, accountNumber, timestamp } = data;
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
         return socket.emit("error", {
@@ -1564,9 +1580,10 @@ const handleSocketConnection = async (socket, io) => {
 
       const { email: newEmail, accountNumber, timestamp } = data;
 
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1593,7 +1610,7 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(`🤳 Manager ${email} initiated face verification for customer ${customerPhone || 'UNKNOWN'}`);
 
       if (!customerPhone) {
@@ -1676,7 +1693,8 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("customer:face-verification-notification-acknowledged", (data) => {
       if (role !== "customer") return;
 
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
         return;
       }
@@ -1690,7 +1708,7 @@ const handleSocketConnection = async (socket, io) => {
           customerId: phone,
           timestamp: Date.now(),
         });
-        console.log(`✅ Customer ${phone} acknowledged face verification notification. Manager ${activeCall.currentManagerEmail} notified.`);
+        console.log(`✅ Customer ${normalizedPhone} acknowledged face verification notification. Manager ${activeCall.currentManagerEmail} notified.`);
       }
     });
     // ============ END FACE VERIFICATION EVENTS ============
@@ -1700,11 +1718,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { customerId } = data;
-      const customerPhone = customerId || socket.user.customerPhone;
+      const customerPhone = normalizePhone(customerId || socket.user.customerPhone);
       console.log(`✍️ Manager ${email} requesting signature upload from customer ${customerPhone}`);
 
       const activeCall = activeCustomerCalls[customerPhone];
       if (!activeCall) {
+        console.log(`⚠️ No active call found for signature request. Normalized Phone: ${customerPhone}. Active keys:`, Object.keys(activeCustomerCalls));
         return socket.emit("error", { message: "No active call found with this customer" });
       }
 
@@ -1736,13 +1755,14 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { signaturePath, timestamp } = data;
-      console.log(`✍️ Customer ${phone} uploaded signature: ${signaturePath}`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`✍️ Customer ${normalizedPhone} uploaded signature: ${signaturePath}`);
 
-      const activeCall = activeCustomerCalls[phone];
-      console.log(`🔍 Active call lookup for customer ${phone}:`, activeCall ? 'FOUND' : 'NOT FOUND');
+      const activeCall = activeCustomerCalls[normalizedPhone];
+      console.log(`🔍 Active call lookup for customer ${normalizedPhone}:`, activeCall ? 'FOUND' : 'NOT FOUND');
 
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call data for customer ${phone} signature upload. Active keys:`, Object.keys(activeCustomerCalls));
+        console.log(`⚠️ No active call data for customer ${normalizedPhone} signature upload. Active keys:`, Object.keys(activeCustomerCalls));
         socket.emit("customer:signature-upload-acknowledged", {
           success: false,
           message: "No active call found on server"
@@ -1787,14 +1807,13 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { customerId, decision, message } = data;
-      console.log(`✍️ Manager ${email} decision for signature of ${customerId}: ${decision}`);
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`✍️ Manager ${email} decision for signature of ${normalizedCustomerId}: ${decision}`);
 
-      if (!activeCustomerCalls[customerId]) return;
+      if (!activeCustomerCalls[normalizedCustomerId]) return;
+      activeCustomerCalls[normalizedCustomerId].managerSocketId = socket.id;
 
-      // Update manager socket ID in call state
-      activeCustomerCalls[customerId].managerSocketId = socket.id;
-
-      const customerSocketId = activeCustomerCalls[customerId].customerSocketId;
+      const customerSocketId = activeCustomerCalls[normalizedCustomerId].customerSocketId;
 
       if (customerSocketId) {
         io.to(customerSocketId).emit("customer:signature-verification-decision", {
@@ -1806,7 +1825,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Update call flags
       if (decision === 'approve' || decision === 'approved') {
-        activeCustomerCalls[customerId].signatureVerified = true;
+        activeCustomerCalls[normalizedCustomerId].signatureVerified = true;
       }
     });
     // ============ END SIGNATURE VERIFICATION EVENTS ============
@@ -1815,7 +1834,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("change:address-permission", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(
         `🔄 Manager ${email} requesting address change for customer ${customerPhone}`
       );
@@ -1846,11 +1865,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { newAddress, addressType, currentAddress } = data;
-      console.log(`🔄 Customer ${phone} typing address: ${newAddress?.substring(0, 30)}...`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`🔄 Customer ${normalizedPhone} typing address: ${newAddress?.substring(0, 30)}...`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1873,7 +1893,7 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { address, addressType, phone: customerMobile, accountNumber, timestamp } = data;
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
         return socket.emit("error", {
@@ -1899,10 +1919,11 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { address, addressType, accountNumber, timestamp } = data;
+      const normalizedPhone = normalizePhone(phone);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -1928,7 +1949,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:request-phone-change", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(`📱 Manager ${email} requesting phone change for customer ${customerPhone}`);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1956,7 +1977,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:request-email-change", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(`📧 Manager ${email} requesting email change for customer ${customerPhone}`);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -1984,7 +2005,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:request-address-change", () => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       console.log(`🏠 Manager ${email} requesting address change for customer ${customerPhone}`);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -2014,7 +2035,8 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { changeType, field, value } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
       if (!activeCall || !activeCall.currentManagerEmail) {
         return;
@@ -2038,7 +2060,8 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { addressType, field, value } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
       if (!activeCall || !activeCall.currentManagerEmail) {
         return;
@@ -2062,12 +2085,13 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { changeType, newValue, currentValue } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 Customer ${phone} submitted ${changeType} change request: ${currentValue} → ${newValue}`);
+      console.log(`📝 Customer ${normalizedPhone} submitted ${changeType} change request: ${currentValue} → ${newValue}`);
 
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -2090,14 +2114,15 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { addressType, addressData } = data;
-      const activeCall = activeCustomerCalls[phone];
+      const normalizedPhone = normalizePhone(phone);
+      const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 Customer ${phone} submitted ${addressType} address change request`);
+      console.log(`📝 Customer ${normalizedPhone} submitted ${addressType} address change request`);
       console.log('📄 Address Data received:', JSON.stringify(addressData, null, 2));
       console.log('📎 Documents:', addressData.documents);
 
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
@@ -2119,17 +2144,18 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { changeType, customerId, newValue, currentValue } = data;
-      console.log(`✅ Manager ${email} approved ${changeType} change for customer ${customerId}: ${currentValue} → ${newValue}`);
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`✅ Manager ${email} approved ${changeType} change for customer ${normalizedCustomerId}: ${currentValue} → ${newValue}`);
 
-      if (!activeCustomerCalls[customerId]) {
-        console.log(`⚠️ No active call found for customer ${customerId}`);
+      if (!activeCustomerCalls[normalizedCustomerId]) {
+        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
         return;
       }
 
       // TODO: Update database with new value
       // This would call CBS service to update the customer's phone/email
 
-      io.to(activeCustomerCalls[customerId].customerSocketId).emit(
+      io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
         "customer:change-approved",
         {
           changeType,
@@ -2138,7 +2164,7 @@ const handleSocketConnection = async (socket, io) => {
         }
       );
 
-      console.log(`✅ Approval notification sent to customer ${customerId}`);
+      console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
     });
 
     // Manager rejects change (phone/email)
@@ -2146,14 +2172,15 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { changeType, customerId, reason } = data;
-      console.log(`❌ Manager ${email} rejected ${changeType} change for customer ${customerId}: ${reason}`);
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`❌ Manager ${email} rejected ${changeType} change for customer ${normalizedCustomerId}: ${reason}`);
 
-      if (!activeCustomerCalls[customerId]) {
-        console.log(`⚠️ No active call found for customer ${customerId}`);
+      if (!activeCustomerCalls[normalizedCustomerId]) {
+        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
         return;
       }
 
-      io.to(activeCustomerCalls[customerId].customerSocketId).emit(
+      io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
         "customer:change-rejected",
         {
           changeType,
@@ -2161,7 +2188,7 @@ const handleSocketConnection = async (socket, io) => {
         }
       );
 
-      console.log(`✅ Rejection notification sent to customer ${customerId}`);
+      console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
     });
 
     // Manager approves address change
@@ -2169,10 +2196,11 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { customerId, addressType, addressData } = data;
-      console.log(`✅ Manager ${email} approved ${addressType} address change for customer ${customerId}`);
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`✅ Manager ${email} approved ${addressType} address change for customer ${normalizedCustomerId}`);
 
-      if (!activeCustomerCalls[customerId]) {
-        console.log(`⚠️ No active call found for customer ${customerId}`);
+      if (!activeCustomerCalls[normalizedCustomerId]) {
+        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
         return;
       }
 
@@ -2196,10 +2224,11 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { customerId, addressType, reason } = data;
-      console.log(`❌ Manager ${email} rejected ${addressType} address change for customer ${customerId}: ${reason}`);
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`❌ Manager ${email} rejected ${addressType} address change for customer ${normalizedCustomerId}: ${reason}`);
 
-      if (!activeCustomerCalls[customerId]) {
-        console.log(`⚠️ No active call found for customer ${customerId}`);
+      if (!activeCustomerCalls[normalizedCustomerId]) {
+        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
         return;
       }
 
@@ -2220,7 +2249,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:request-assistance", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
       const { urgency = "normal", reason = "" } = data;
 
       console.log(`🆘 Manager ${email} requesting assistance for customer ${customerPhone}`);
@@ -2263,7 +2292,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:cancel-assistance", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return;
@@ -2293,7 +2322,8 @@ const handleSocketConnection = async (socket, io) => {
 
     socket.on("supervisor:respond-assistance", (data) => {
       // This can be used by supervisor to acknowledge/respond
-      const { requestId, customerPhone, response } = data;
+      const { requestId, customerPhone: rawPhone, response } = data;
+      const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "Call not found" });
@@ -2358,7 +2388,7 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { targetManagerEmail, reason } = data;
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "No active call to transfer" });
@@ -2442,7 +2472,7 @@ const handleSocketConnection = async (socket, io) => {
         return socket.emit("error", { message: "You are not the target of this transfer" });
       }
 
-      const customerPhone = transfer.customerPhone;
+      const customerPhone = normalizePhone(transfer.customerPhone);
       const activeCall = activeCustomerCalls[customerPhone];
 
       if (!activeCall) {
@@ -2565,7 +2595,8 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor joins a call in listen mode
     socket.on("supervisor:join-call", (data) => {
-      const { customerPhone, mode = "listen" } = data; // mode: listen, whisper, barge
+      const { customerPhone: rawPhone, mode = "listen" } = data; // mode: listen, whisper, barge
+      const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "Call not found" });
@@ -2718,7 +2749,8 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor sends text whisper (private message to manager only)
     socket.on("supervisor:text-whisper", (data) => {
-      const { customerPhone, message } = data;
+      const { customerPhone: rawPhone, message } = data;
+      const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "Call not found" });
@@ -2755,7 +2787,7 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "manager") return;
 
       const { supervisorId, message } = data;
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "No active call" });
@@ -3320,11 +3352,12 @@ const handleSocketConnection = async (socket, io) => {
       if (role !== "customer") return;
 
       const { imagePath, imageBase64 } = data;
-      console.log(`📷 Customer ${phone} sent captured image:`, imagePath ? 'path provided' : 'no path', imageBase64 ? 'base64 provided' : 'no base64');
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`📷 Customer ${normalizedPhone} sent captured image:`, imagePath ? 'path provided' : 'no path', imageBase64 ? 'base64 provided' : 'no base64');
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         socket.emit("customer:capture-error", {
           message: "No active call found. Please reconnect.",
           error: "no_active_call"
@@ -3336,14 +3369,14 @@ const handleSocketConnection = async (socket, io) => {
       if (activeCall.faceVerificationTimeout) {
         clearTimeout(activeCall.faceVerificationTimeout);
         delete activeCall.faceVerificationTimeout;
-        console.log(`✅ Cleared face verification timeout for customer ${phone}`);
+        console.log(`✅ Cleared face verification timeout for customer ${normalizedPhone}`);
       }
 
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === activeCall.currentManagerEmail
       )?.socketId;
 
-      console.log(`🔍 Manager for customer ${phone}: ${activeCall.currentManagerEmail}, socketId: ${managerSocketId || 'NOT FOUND'}`);
+      console.log(`🔍 Manager for customer ${normalizedPhone}: ${activeCall.currentManagerEmail}, socketId: ${managerSocketId || 'NOT FOUND'}`);
 
       // Send image to manager for display
       if (managerSocketId) {
@@ -3365,8 +3398,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Auto-verify face using mock service (will use OpenCV API later)
       try {
-        console.log(`🔍 Starting face verification for customer ${phone}`);
-
+        console.log(`🔍 Starting face verification for customer ${normalizedPhone}`);
         // Get NID data if available for comparison
         const nidData = activeCall.nidData || null;
 
@@ -3374,24 +3406,24 @@ const handleSocketConnection = async (socket, io) => {
         if (nidData && nidData.photo) {
           // Compare with NID photo
           verificationResult = await faceVerificationService.verifyFaceAgainstNID(
-            phone,
+            normalizedPhone,
             imageBase64 || imagePath,
             nidData
           );
         } else {
           // Quick verification without NID reference
           verificationResult = await faceVerificationService.quickVerifyFace(
-            phone,
+            normalizedPhone,
             imageBase64 || imagePath
           );
         }
 
-        console.log(`📊 Face verification result for ${phone}:`, verificationResult);
+        console.log(`📊 Face verification result for ${normalizedPhone}:`, verificationResult);
 
         // Update active call with verification result
         if (verificationResult.verified) {
-          activeCustomerCalls[phone].faceVerified = true;
-          activeCustomerCalls[phone].faceMatchScore = verificationResult.score;
+          activeCustomerCalls[normalizedPhone].faceVerified = true;
+          activeCustomerCalls[normalizedPhone].faceMatchScore = verificationResult.score;
 
           // Update call log
           if (activeCall.callRoom) {
@@ -3426,7 +3458,7 @@ const handleSocketConnection = async (socket, io) => {
         });
 
       } catch (error) {
-        console.error(`❌ Face verification error for ${phone}:`, error);
+        console.error(`❌ Face verification error for ${normalizedPhone}:`, error);
 
         // Notify manager of error
         if (managerSocketId) {
@@ -3452,7 +3484,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:verify-image", async (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
@@ -3490,7 +3522,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:face-verification-decision", async (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
@@ -3594,7 +3626,7 @@ const handleSocketConnection = async (socket, io) => {
       const messageId = crypto.randomUUID();
 
       if (role === "manager") {
-        const customerPhone = socket.user.customerPhone;
+        const customerPhone = normalizePhone(socket.user.customerPhone);
 
         if (!customerPhone || !activeCustomerCalls[customerPhone]) {
           console.log(`⚠️ No active call found for chat message from manager ${email}`);
@@ -3623,16 +3655,17 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`💬 Chat message from Manager ${email} to Customer ${customerPhone}: ${message.substring(0, 50)}...`);
 
       } else if (role === "customer") {
-        const activeCall = activeCustomerCalls[phone];
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
 
         if (!activeCall || !activeCall.currentManagerEmail) {
-          console.log(`⚠️ No active call found for chat message from customer ${phone}`);
+          console.log(`⚠️ No active call found for chat message from customer ${normalizedPhone}`);
           return socket.emit("error", { message: "No active call with manager" });
         }
 
         // Increment chat message count
-        activeCustomerCalls[phone].chatMessagesCount =
-          (activeCustomerCalls[phone].chatMessagesCount || 0) + 1;
+        activeCustomerCalls[normalizedPhone].chatMessagesCount =
+          (activeCustomerCalls[normalizedPhone].chatMessagesCount || 0) + 1;
 
         const managerSocketId = getOnlineUsersWithInfo().find(
           (user) => user.email === activeCall.currentManagerEmail
@@ -3663,7 +3696,7 @@ const handleSocketConnection = async (socket, io) => {
       const { isTyping } = data;
 
       if (role === "manager") {
-        const customerPhone = socket.user.customerPhone;
+        const customerPhone = normalizePhone(socket.user.customerPhone);
 
         if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
 
@@ -3674,7 +3707,8 @@ const handleSocketConnection = async (socket, io) => {
         });
 
       } else if (role === "customer") {
-        const activeCall = activeCustomerCalls[phone];
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
 
         if (!activeCall || !activeCall.currentManagerEmail) return;
 
@@ -3719,7 +3753,8 @@ const handleSocketConnection = async (socket, io) => {
         // TODO: Update customer database with new value
         // For now, just notify the customer of approval
 
-        const customerSocketId = activeCustomerCalls[customerId]?.customerSocketId;
+        const normalizedCustomerId = normalizePhone(customerId);
+        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
         if (customerSocketId) {
           io.to(customerSocketId).emit("customer:change-approved", {
             changeType,
@@ -3757,7 +3792,8 @@ const handleSocketConnection = async (socket, io) => {
           userAgent: socket.handshake.headers['user-agent']
         });
 
-        const customerSocketId = activeCustomerCalls[customerId]?.customerSocketId;
+        const normalizedCustomerId = normalizePhone(customerId);
+        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
         if (customerSocketId) {
           io.to(customerSocketId).emit("customer:change-rejected", {
             changeType,
@@ -3796,7 +3832,8 @@ const handleSocketConnection = async (socket, io) => {
 
         // TODO: Update customer database with new address
 
-        const customerSocketId = activeCustomerCalls[customerId]?.customerSocketId;
+        const normalizedCustomerId = normalizePhone(customerId);
+        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
         if (customerSocketId) {
           io.to(customerSocketId).emit("customer:change-approved", {
             changeType: 'address',
@@ -3834,7 +3871,8 @@ const handleSocketConnection = async (socket, io) => {
           userAgent: socket.handshake.headers['user-agent']
         });
 
-        const customerSocketId = activeCustomerCalls[customerId]?.customerSocketId;
+        const normalizedCustomerId = normalizePhone(customerId);
+        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
         if (customerSocketId) {
           io.to(customerSocketId).emit("customer:change-rejected", {
             changeType: 'address',
@@ -3843,7 +3881,7 @@ const handleSocketConnection = async (socket, io) => {
           });
         }
 
-        console.log(`✅ ${addressType} address change rejected for customer ${customerId}`);
+        console.log(`✅ ${addressType} address change rejected for customer ${normalizedCustomerId}`);
       } catch (error) {
         console.error(`❌ Error rejecting address change:`, error);
         socket.emit("error", { message: "Failed to reject address change" });
@@ -3875,13 +3913,14 @@ const handleSocketConnection = async (socket, io) => {
         await clearActiveCustomerCall(phone, io);
       } else if (role === "manager") {
         Object.keys(activeCustomerCalls).forEach((customerPhone) => {
+          const normalizedPhone = normalizePhone(customerPhone);
           if (
-            activeCustomerCalls[customerPhone].currentManagerEmail === email
+            activeCustomerCalls[normalizedPhone].currentManagerEmail === email
           ) {
             console.log(
-              `📣 Notifying customer ${customerPhone} about manager ${email} disconnection`
+              `📣 Notifying customer ${normalizedPhone} about manager ${email} disconnection`
             );
-            io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
+            io.to(activeCustomerCalls[normalizedPhone].customerSocketId).emit(
               "manager:disconnected",
               {
                 managerId: email,
@@ -3955,25 +3994,26 @@ const selectManagersForBroadcast = (availableManagers, maxManagers = 3) => {
 };
 
 const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io) => {
+  const normalizedCustomerPhone = normalizePhone(customerPhone);
   console.log(
-    `🔄 Attempting to find next manager for customer ${customerPhone}`
+    `🔄 Attempting to find next manager for customer ${normalizedCustomerPhone}`
   );
   console.log(`📋 Manager queue length: ${managerQueue.length}`);
 
-  if (!socket || !customerPhone || !activeCustomerCalls[customerPhone]) {
-    console.log(`⚠️ Invalid call attempt state for customer ${customerPhone}`);
+  if (!socket || !customerPhone || !activeCustomerCalls[normalizedCustomerPhone]) {
+    console.log(`⚠️ Invalid call attempt state for customer ${normalizedCustomerPhone}`);
     return;
   }
 
   if (managerQueue.length === 0) {
-    console.log(`📋 No more managers available for customer ${customerPhone}, adding to BullMQ queue`);
+    console.log(`📋 No more managers available for customer ${normalizedCustomerPhone}, adding to BullMQ queue`);
 
     // Add customer to BullMQ queue instead of failing
     const result = await addCustomerToQueue({
-      customerPhone,
-      socketId: activeCustomerCalls[customerPhone]?.customerSocketId,
-      customerName: activeCustomerCalls[customerPhone]?.customerName,
-      customerEmail: activeCustomerCalls[customerPhone]?.customerEmail,
+      customerPhone: normalizedCustomerPhone,
+      socketId: activeCustomerCalls[normalizedCustomerPhone]?.customerSocketId,
+      customerName: activeCustomerCalls[normalizedCustomerPhone]?.customerName,
+      customerEmail: activeCustomerCalls[normalizedCustomerPhone]?.customerEmail,
       priority: 'NORMAL'
     });
 
@@ -4011,46 +4051,46 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   );
 
   if (
-    activeCustomerCalls[customerPhone].attemptedManagers.has(
+    activeCustomerCalls[normalizedCustomerPhone].attemptedManagers.has(
       selectedManager.email
     ) ||
-    rejectedManagers[customerPhone]?.has(selectedManager.email)
+    rejectedManagers[normalizedCustomerPhone]?.has(selectedManager.email)
   ) {
     console.log(
       `⚠️ Manager ${selectedManager.email} was already attempted or rejected, trying next`
     );
-    return attemptCallToNextManager(socket, customerPhone, managerQueue, io);
+    return attemptCallToNextManager(socket, normalizedCustomerPhone, managerQueue, io);
   }
 
-  activeCustomerCalls[customerPhone].attemptedManagers.add(
+  activeCustomerCalls[normalizedCustomerPhone].attemptedManagers.add(
     selectedManager.email
   );
-  activeCustomerCalls[customerPhone].currentManagerEmail =
+  activeCustomerCalls[normalizedCustomerPhone].currentManagerEmail =
     selectedManager.email;
-  activeCustomerCalls[customerPhone].managerSocketId =
+  activeCustomerCalls[normalizedCustomerPhone].managerSocketId =
     selectedManager.socketId;
 
   const roomId = crypto
     .createHash("sha256")
-    .update(`${customerPhone}_${selectedManager.email}_${Date.now()}`)
+    .update(`${normalizedCustomerPhone}_${selectedManager.email}_${Date.now()}`)
     .digest("hex")
     .slice(0, 16);
   const callRoomLink = `https://${OPENVIDU_DOMAIN}/${roomId}`;
 
   // Store room ID for OpenVidu/LiveKit (just the ID, not full URL)
-  activeCustomerCalls[customerPhone].callRoom = roomId;
-  activeCustomerCalls[customerPhone].callRoomLink = callRoomLink;
+  activeCustomerCalls[normalizedCustomerPhone].callRoom = roomId;
+  activeCustomerCalls[normalizedCustomerPhone].callRoomLink = callRoomLink;
 
   const managerSocket = io.sockets.sockets.get(selectedManager.socketId);
   if (managerSocket) {
-    managerSocket.user.customerPhone = customerPhone;
+    managerSocket.user.customerPhone = normalizedCustomerPhone;
   }
 
   // Fetch customer info from CBS
   const cbsMockService = require("./cbsMockService");
   let customerInfo = {};
   try {
-    const cbsData = await cbsMockService.lookupCustomerByPhone(customerPhone);
+    const cbsData = await cbsMockService.lookupCustomerByPhone(normalizedCustomerPhone);
     if (cbsData.found) {
       customerInfo = {
         customerName: cbsData.name,
@@ -4059,19 +4099,19 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
       };
     }
   } catch (error) {
-    console.error(`Error fetching customer info for ${customerPhone}:`, error);
+    console.error(`Error fetching customer info for ${normalizedCustomerPhone}:`, error);
   }
 
   io.to(selectedManager.socketId).emit("call:request", {
-    customerId: customerPhone,
-    customerSocketId: activeCustomerCalls[customerPhone].customerSocketId,
+    customerId: normalizedCustomerPhone,
+    customerSocketId: activeCustomerCalls[normalizedCustomerPhone].customerSocketId,
     callRoom: roomId,
-    customerPhone: customerPhone,
+    customerPhone: normalizedCustomerPhone,
     ...customerInfo,
   });
 
   // Notify customer that call is being connected
-  io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
+  io.to(activeCustomerCalls[normalizedCustomerPhone].customerSocketId).emit(
     "call:initiated",
     {
       managerId: selectedManager.email,
@@ -4082,7 +4122,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   );
 
   console.log(
-    `📞 Call initiated: Customer ${customerPhone} → Manager ${selectedManager.email}`
+    `📞 Call initiated: Customer ${normalizedCustomerPhone} → Manager ${selectedManager.email}`
   );
   console.log(`🔗 Call Room: ${roomId}`);
 
@@ -4091,32 +4131,32 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   io.emit("manager:list", findAvailableManagers());
 
   // Clear any existing timeout
-  if (activeCustomerCalls[customerPhone].timeout) {
-    clearTimeout(activeCustomerCalls[customerPhone].timeout);
+  if (activeCustomerCalls[normalizedCustomerPhone].timeout) {
+    clearTimeout(activeCustomerCalls[normalizedCustomerPhone].timeout);
   }
 
   // Set timeout for manager response
-  activeCustomerCalls[customerPhone].timeout = setTimeout(async () => {
+  activeCustomerCalls[normalizedCustomerPhone].timeout = setTimeout(async () => {
     console.log(
-      `⏳ Manager ${selectedManager.email} did not respond in time to customer ${customerPhone}`
+      `⏳ Manager ${selectedManager.email} did not respond in time to customer ${normalizedCustomerPhone}`
     );
 
     if (
-      !activeCustomerCalls[customerPhone] ||
-      !activeCustomerCalls[customerPhone].inProgress
+      !activeCustomerCalls[normalizedCustomerPhone] ||
+      !activeCustomerCalls[normalizedCustomerPhone].inProgress
     ) {
       console.log(
-        `⚠️ Call no longer active for customer ${customerPhone} - timeout handler`
+        `⚠️ Call no longer active for customer ${normalizedCustomerPhone} - timeout handler`
       );
       return;
     }
 
     if (
-      activeCustomerCalls[customerPhone].currentManagerEmail !==
+      activeCustomerCalls[normalizedCustomerPhone].currentManagerEmail !==
       selectedManager.email
     ) {
       console.log(
-        `⚠️ Manager changed during timeout for customer ${customerPhone}`
+        `⚠️ Manager changed during timeout for customer ${normalizedCustomerPhone}`
       );
       return;
     }
@@ -4125,7 +4165,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
     if (managerSocket) {
       managerSocket.emit("call:reassigned", {
         message: "Call has been reassigned due to response timeout",
-        customerId: customerPhone,
+        customerId: normalizedCustomerPhone,
       });
       console.log(
         `📣 Notified manager ${selectedManager.email} about timeout reassignment`
@@ -4137,30 +4177,30 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
 
     let availableManagers = findAvailableManagers().filter(
       (mgr) =>
-        !activeCustomerCalls[customerPhone].attemptedManagers.has(mgr.email)
+        !activeCustomerCalls[normalizedCustomerPhone].attemptedManagers.has(mgr.email)
     );
 
     if (availableManagers.length > 0) {
       console.log(
-        `🔄 Attempting next manager after timeout for customer ${customerPhone}`
+        `🔄 Attempting next manager after timeout for customer ${normalizedCustomerPhone}`
       );
       attemptCallToNextManager(
         socket,
-        customerPhone,
+        normalizedCustomerPhone,
         [...availableManagers],
         io
       );
     } else {
       // All managers tried but none responded - add to BullMQ queue
       console.log(
-        `📋 All managers tried but none responded for customer ${customerPhone}, adding to BullMQ queue`
+        `📋 All managers tried but none responded for customer ${normalizedCustomerPhone}, adding to BullMQ queue`
       );
 
       const addToQueueResult = await addCustomerToQueue({
-        customerPhone,
-        socketId: activeCustomerCalls[customerPhone]?.customerSocketId,
-        customerName: activeCustomerCalls[customerPhone]?.customerName,
-        customerEmail: activeCustomerCalls[customerPhone]?.customerEmail,
+        customerPhone: normalizedCustomerPhone,
+        socketId: activeCustomerCalls[normalizedCustomerPhone]?.customerSocketId,
+        customerName: activeCustomerCalls[normalizedCustomerPhone]?.customerName,
+        customerEmail: activeCustomerCalls[normalizedCustomerPhone]?.customerEmail,
         priority: 'HIGH' // High priority since they already tried all managers
       });
 
@@ -4187,22 +4227,23 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
 };
 
 const clearActiveCustomerCall = async (customerPhone, io = null) => {
-  if (!activeCustomerCalls[customerPhone]) return;
+  const normalizedPhone = normalizePhone(customerPhone);
+  if (!activeCustomerCalls[normalizedPhone]) return;
 
-  console.log(`🧹 Clearing active call for customer ${customerPhone}`);
+  console.log(`🧹 Clearing active call for customer ${normalizedPhone}`);
 
-  if (activeCustomerCalls[customerPhone].timeout) {
-    clearTimeout(activeCustomerCalls[customerPhone].timeout);
-    console.log(`🔄 Cleared timeout for customer ${customerPhone}`);
+  if (activeCustomerCalls[normalizedPhone].timeout) {
+    clearTimeout(activeCustomerCalls[normalizedPhone].timeout);
+    console.log(`🔄 Cleared timeout for customer ${normalizedPhone}`);
   }
 
   const currentManagerEmail =
-    activeCustomerCalls[customerPhone].currentManagerEmail;
-  const managerSocketId = activeCustomerCalls[customerPhone].managerSocketId;
+    activeCustomerCalls[normalizedPhone].currentManagerEmail;
+  const managerSocketId = activeCustomerCalls[normalizedPhone].managerSocketId;
 
   if (currentManagerEmail) {
     // Restore manager's previous status (before they accepted the call)
-    const previousStatus = activeCustomerCalls[customerPhone].managerPreviousStatus || AGENT_STATUS.ONLINE;
+    const previousStatus = activeCustomerCalls[normalizedPhone].managerPreviousStatus || AGENT_STATUS.ONLINE;
     console.log(
       `🔄 Restoring manager ${currentManagerEmail} status to: ${previousStatus}`
     );
@@ -4219,12 +4260,12 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
   }
 
   // Remove from call queue if present
-  await removeCustomerFromQueue(customerPhone);
+  await removeCustomerFromQueue(normalizedPhone);
 
-  delete rejectedManagers[customerPhone];
-  delete activeCustomerCalls[customerPhone];
+  delete rejectedManagers[normalizedPhone];
+  delete activeCustomerCalls[normalizedPhone];
   console.log(
-    `✅ Successfully cleared call state for customer ${customerPhone}`
+    `✅ Successfully cleared call state for customer ${normalizedPhone}`
   );
 };
 
@@ -4318,15 +4359,16 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     return;
   }
 
+  const normalizedCustomerPhone = normalizePhone(nextInQueue.customerPhone);
   // Check if customer already has an active call (prevent duplicate routing)
-  if (activeCustomerCalls[nextInQueue.customerPhone]) {
-    console.log(`⚠️ Customer ${nextInQueue.customerPhone} already has active call, skipping`);
+  if (activeCustomerCalls[normalizedCustomerPhone]) {
+    console.log(`⚠️ Customer ${normalizedCustomerPhone} already has active call, skipping`);
     return;
   }
 
   // DON'T remove from queue yet - let the accept handler do it
   // This prevents "customer not found in queue" errors when manager manually picks from queue
-  console.log(`📝 Broadcasting call to managers - customer ${nextInQueue.customerPhone} stays in queue until accepted`);
+  console.log(`📝 Broadcasting call to managers - customer ${normalizedCustomerPhone} stays in queue until accepted`);
 
   // Create call room
   const roomId = crypto
@@ -4345,14 +4387,14 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
   );
 
   // Store active call with broadcast info and verification info
-  activeCustomerCalls[nextInQueue.customerPhone] = {
+  activeCustomerCalls[normalizedCustomerPhone] = {
     inProgress: true,
     customerSocketId: nextInQueue.socketId,
     broadcastedManagers: new Set(selectedManagers.map(m => m.email)),
     acceptedManager: null, // Will be set when manager accepts
     timeout: null,
     startTime: Date.now(),
-    customerPhone: nextInQueue.customerPhone,
+    customerPhone: normalizedCustomerPhone,
     callRoom: roomId,
     callRoomLink: callRoomLink,
     fromQueue: true,
@@ -4413,10 +4455,10 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
   await broadcastQueueAndStatus(io);
 
   // Set timeout: If no manager accepts within 20s, put back in queue with HIGH priority
-  activeCustomerCalls[nextInQueue.customerPhone].timeout = setTimeout(async () => {
-    console.log(`⏳ No manager accepted queued call from ${nextInQueue.customerPhone}, re-queuing with HIGH priority`);
+  activeCustomerCalls[normalizedCustomerPhone].timeout = setTimeout(async () => {
+    console.log(`⏳ No manager accepted queued call from ${normalizedCustomerPhone}, re-queuing with HIGH priority`);
 
-    if (!activeCustomerCalls[nextInQueue.customerPhone] || activeCustomerCalls[nextInQueue.customerPhone].acceptedManager) {
+    if (!activeCustomerCalls[normalizedCustomerPhone] || activeCustomerCalls[normalizedCustomerPhone].acceptedManager) {
       // Call already accepted or cleared
       return;
     }
