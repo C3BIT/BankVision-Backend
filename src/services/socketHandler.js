@@ -265,7 +265,10 @@ const handleSocketConnection = async (socket, io) => {
         // Notify manager about call end BEFORE clearing state
         if (activeCustomerCalls[phone]?.currentManagerEmail) {
           const managerEmail = activeCustomerCalls[phone].currentManagerEmail;
-          const managerSocketId = activeCustomerCalls[phone].managerSocketId;
+          // Find current manager socket ID robustly
+          const managerSocketId = getOnlineUsersWithInfo().find(
+            (user) => user.email === managerEmail
+          )?.socketId || activeCustomerCalls[phone].managerSocketId;
 
           console.log(`📣 Notifying manager ${managerEmail} (socket: ${managerSocketId}) about customer ${phone} ending call`);
 
@@ -1658,12 +1661,16 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:request-signature-upload", (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = socket.user.customerPhone;
+      const { customerId } = data;
+      const customerPhone = customerId || socket.user.customerPhone;
       console.log(`✍️ Manager ${email} requesting signature upload from customer ${customerPhone}`);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         return socket.emit("error", { message: "No active call with customer" });
       }
+
+      // Update manager socket ID in case it changed (e.g. refresh)
+      activeCustomerCalls[customerPhone].managerSocketId = socket.id;
 
       const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
 
@@ -1685,15 +1692,25 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`✍️ Customer ${phone} uploaded signature: ${signaturePath}`);
 
       const activeCall = activeCustomerCalls[phone];
-      if (!activeCall || !activeCall.managerSocketId) {
+      if (!activeCall || !activeCall.currentManagerEmail) {
         return;
       }
 
-      io.to(activeCall.managerSocketId).emit("customer:signature-uploaded", {
-        customerId: phone,
-        signaturePath,
-        timestamp
-      });
+      // Find current manager socket ID robustly
+      const managerSocketId = getOnlineUsersWithInfo().find(
+        (user) => user.email === activeCall.currentManagerEmail
+      )?.socketId || activeCall.managerSocketId;
+
+      if (managerSocketId) {
+        io.to(managerSocketId).emit("customer:signature-uploaded", {
+          customerId: phone,
+          signaturePath,
+          timestamp
+        });
+        console.log(`📣 Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail}`);
+      } else {
+        console.log(`⚠️ No manager socket found for signature of customer ${phone}`);
+      }
     });
 
     socket.on("manager:signature-verification-decision", (data) => {
@@ -1704,13 +1721,18 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!activeCustomerCalls[customerId]) return;
 
+      // Update manager socket ID in call state
+      activeCustomerCalls[customerId].managerSocketId = socket.id;
+
       const customerSocketId = activeCustomerCalls[customerId].customerSocketId;
 
-      io.to(customerSocketId).emit("customer:signature-verification-decision", {
-        decision,
-        message,
-        timestamp: Date.now()
-      });
+      if (customerSocketId) {
+        io.to(customerSocketId).emit("customer:signature-verification-decision", {
+          decision,
+          message,
+          timestamp: Date.now()
+        });
+      }
 
       // Update call flags
       if (decision === 'approve' || decision === 'approved') {
