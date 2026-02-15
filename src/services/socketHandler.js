@@ -101,6 +101,8 @@ const handleSocketConnection = async (socket, io) => {
           if (activeCustomerCalls[custPhone].currentManagerEmail === email) {
             console.log(`♻️ Manager ${email} reconnected - updating active call with ${custPhone} to socketId: ${socketId}`);
             activeCustomerCalls[custPhone].managerSocketId = socketId;
+            // Restore customerPhone on the new socket so manager operations work
+            socket.user.customerPhone = custPhone;
           }
         });
       }
@@ -823,7 +825,23 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:phone-verification", async (data) => {
       if (role !== "manager") return;
 
-      const rawCustomerPhone = socket.user.customerPhone;
+      // Fallback: Check if customerPhone is provided in data payload (for robustness)
+      let rawCustomerPhone = socket.user.customerPhone || data.customerPhone;
+
+      if (!rawCustomerPhone) {
+        console.error(`❌ Manager ${email} requested verification but no customerPhone found in socket.user or data`);
+        // Try to find active call by manager email as last resort
+        const activeCallKey = Object.keys(activeCustomerCalls).find(
+          key => activeCustomerCalls[key].currentManagerEmail === email
+        );
+        if (activeCallKey) {
+          console.log(`✅ Recovered customerPhone from activeCustomerCalls: ${activeCallKey}`);
+          rawCustomerPhone = activeCallKey;
+          // Self-repair socket user data
+          socket.user.customerPhone = activeCallKey;
+        }
+      }
+
       const customerPhone = normalizePhone(rawCustomerPhone);
       console.log(
         `🔄 Manager ${email} requesting phone verification for customer ${customerPhone}`
@@ -831,10 +849,9 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        console.log(`📋 Active calls:`, Object.keys(activeCustomerCalls));
-        console.log(`📋 Manager's customerPhone (normalized):`, customerPhone);
+        console.log(`📋 Active calls keys:`, Object.keys(activeCustomerCalls));
         return socket.emit("error", {
-          message: "No active call with customer",
+          message: "No active call with customer found. Please refresh the page.",
         });
       }
 
@@ -1710,6 +1727,45 @@ const handleSocketConnection = async (socket, io) => {
         });
         console.log(`✅ Customer ${normalizedPhone} acknowledged face verification notification. Manager ${activeCall.currentManagerEmail} notified.`);
       }
+    });
+
+    // Handle passive face verification success from manager
+    socket.on("manager:face-verified", (data) => {
+      if (role !== "manager") return;
+
+      const { customerId, matchPercentage } = data;
+      const normalizedCustomerId = normalizePhone(customerId);
+
+      console.log(`✅ Manager ${email} confirmed face verification for ${normalizedCustomerId}`);
+
+      const activeCall = activeCustomerCalls[normalizedCustomerId];
+      if (!activeCall) {
+        console.log(`⚠️ No active call found for face verification of ${normalizedCustomerId}`);
+        return;
+      }
+
+      // Update call state
+      activeCall.faceVerified = true;
+      activeCall.faceMatchPercentage = matchPercentage;
+
+      // Notify both parties
+      const eventData = {
+        verified: true,
+        matchPercentage,
+        timestamp: Date.now()
+      };
+
+      // Notify manager (to update UI state)
+      if (activeCall.managerSocketId) {
+        io.to(activeCall.managerSocketId).emit("customer:face-verified", eventData);
+      }
+
+      // Notify customer
+      if (activeCall.customerSocketId) {
+        io.to(activeCall.customerSocketId).emit("customer:face-verified", eventData);
+      }
+
+      console.log(`✅ Face verification confirmed and broadcasted for ${normalizedCustomerId}`);
     });
     // ============ END FACE VERIFICATION EVENTS ============
 
