@@ -64,6 +64,7 @@ const MOCK_CBS_LOANS = {
 // Profile image URL base
 const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "http://localhost:3000";
 const PROFILE_IMAGE_BASE = `${MINIO_PUBLIC_URL}/uploads/profiles`;
+const SIGNATURE_IMAGE_BASE = `https://placehold.jp/24/f0f0f0/333333/200x100.png?text=Signature%20of%20`;
 
 const MOCK_CBS_CUSTOMERS = {
   // Rizwan Riyad - Business Owner with multiple accounts, premium cards, and loans
@@ -76,7 +77,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Rizwan%20Riyad`, // Mock signature image
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -90,7 +91,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Rizwan%20Riyad`, // Mock signature image
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -107,7 +108,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Iftekhar%20Ucchash`, // Mock signature image
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -121,7 +122,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Iftekhar%20Ucchash`, // Mock signature image
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -138,7 +139,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Zia%20Uddin%20Tarek`, // Mock signature image
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -152,7 +153,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Zia%20Uddin%20Tarek`, // Mock signature image
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -169,7 +170,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Nafiz%20Ahmed`, // Mock signature image
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",
@@ -186,7 +187,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
-      signatureImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`, // Mock signature image
+      signatureImage: `${SIGNATURE_IMAGE_BASE}Mock%20Customer`, // Mock signature image
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",

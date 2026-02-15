@@ -27,11 +27,35 @@ const OTP = require("./otpService");
 
 const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN;
 const CALL_TIMEOUT = 20000; // 20 seconds - banking industry standard
+
+/**
+ * Normalizes phone numbers to a consistent format (removes non-digits, strips country code prefix if present)
+ */
+const normalizePhone = (phone) => {
+  if (!phone) return null;
+  // Remove all non-numeric characters
+  let cleaned = phone.toString().replace(/\D/g, '');
+  // If it starts with 880 (Bangladesh country code), remove it
+  if (cleaned.startsWith('880') && cleaned.length > 10) {
+    cleaned = cleaned.substring(3);
+  }
+  // Ensure it starts with 0 for BD consistency (01XXXXX)
+  if (cleaned.startsWith('1') && cleaned.length === 10) {
+    cleaned = '0' + cleaned;
+  }
+  return cleaned;
+};
+
 const activeCustomerCalls = {};
 const rejectedManagers = {};
 const activeSupervisors = {}; // Track supervisors monitoring calls
 
 const handleSocketConnection = async (socket, io) => {
+  // Normalize phone number if present for consistent tracking
+  if (socket.user && socket.user.phone) {
+    socket.user.phone = normalizePhone(socket.user.phone);
+  }
+
   const { role, phone, name, email, isAdmin } = socket.user;
   const socketId = socket.id;
   if (!socketId || !role) {
@@ -1715,8 +1739,10 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`✍️ Customer ${phone} uploaded signature: ${signaturePath}`);
 
       const activeCall = activeCustomerCalls[phone];
+      console.log(`🔍 Active call lookup for customer ${phone}:`, activeCall ? 'FOUND' : 'NOT FOUND');
+
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call data for customer ${phone} signature upload`);
+        console.log(`⚠️ No active call data for customer ${phone} signature upload. Active keys:`, Object.keys(activeCustomerCalls));
         socket.emit("customer:signature-upload-acknowledged", {
           success: false,
           message: "No active call found on server"
@@ -1724,10 +1750,16 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      console.log(`📣 Target manager for signature: ${activeCall.currentManagerEmail}`);
+
       // Find current manager socket ID robustly
-      const managerSocketId = getOnlineUsersWithInfo().find(
+      const onlineUsers = getOnlineUsersWithInfo();
+      const targetManager = onlineUsers.find(
         (user) => user.email === activeCall.currentManagerEmail
-      )?.socketId || activeCall.managerSocketId;
+      );
+
+      const managerSocketId = targetManager?.socketId || activeCall.managerSocketId;
+      console.log(`📡 Sending signature to manager ${activeCall.currentManagerEmail} at socket: ${managerSocketId} (Found in online: ${!!targetManager})`);
 
       if (managerSocketId) {
         io.to(managerSocketId).emit("customer:signature-uploaded", {
@@ -1735,7 +1767,7 @@ const handleSocketConnection = async (socket, io) => {
           signaturePath,
           timestamp
         });
-        console.log(`📣 Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
+        console.log(`✅ Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
 
         // Acknowledge to customer
         socket.emit("customer:signature-upload-acknowledged", {
