@@ -62,8 +62,22 @@ const handleSocketConnection = async (socket, io) => {
       // Update session with socket ID for managers (for force-logout feature)
       if (role === "manager" && socket.user.id) {
         updateSessionSocketId(socket.user.id, socketId);
-        // Status is already restored in addUserInCache from Redis
-        // Frontend will request status via manager:get-status event
+      }
+
+      // 🔄 SYNC ACTIVE CALL STATES: Refresh socket IDs for either role on reconnect
+      if (role === "customer") {
+        if (activeCustomerCalls[phone]) {
+          console.log(`♻️ Customer ${phone} reconnected - updating call state socketId: ${socketId}`);
+          activeCustomerCalls[phone].customerSocketId = socketId;
+        }
+      } else if (role === "manager" && email) {
+        // Find if this manager has any active calls and update their socketId
+        Object.keys(activeCustomerCalls).forEach(custPhone => {
+          if (activeCustomerCalls[custPhone].currentManagerEmail === email) {
+            console.log(`♻️ Manager ${email} reconnected - updating active call with ${custPhone} to socketId: ${socketId}`);
+            activeCustomerCalls[custPhone].managerSocketId = socketId;
+          }
+        });
       }
     }
 
@@ -1665,14 +1679,22 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = customerId || socket.user.customerPhone;
       console.log(`✍️ Manager ${email} requesting signature upload from customer ${customerPhone}`);
 
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "No active call with customer" });
+      const activeCall = activeCustomerCalls[customerPhone];
+      if (!activeCall) {
+        return socket.emit("error", { message: "No active call found with this customer" });
       }
 
-      // Update manager socket ID in case it changed (e.g. refresh)
-      activeCustomerCalls[customerPhone].managerSocketId = socket.id;
+      // Ensure manager socket ID is fresh
+      activeCall.managerSocketId = socket.id;
 
-      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+      // Find current customer socket ID robustly
+      const customerSocketId = getOnlineUsersWithInfo().find(
+        (user) => user.phone === customerPhone
+      )?.socketId || activeCall.customerSocketId;
+
+      if (!customerSocketId) {
+        return socket.emit("error", { message: "Customer is not currently connected" });
+      }
 
       // Clear previous requests
       clearCustomerRequests(customerSocketId);
@@ -1683,6 +1705,7 @@ const handleSocketConnection = async (socket, io) => {
         managerName: name || null,
         timestamp: Date.now()
       });
+      console.log(`✅ Signature upload request sent to customer ${customerPhone} (socket: ${customerSocketId})`);
     });
 
     socket.on("customer:signature-uploaded", (data) => {
@@ -1693,6 +1716,11 @@ const handleSocketConnection = async (socket, io) => {
 
       const activeCall = activeCustomerCalls[phone];
       if (!activeCall || !activeCall.currentManagerEmail) {
+        console.log(`⚠️ No active call data for customer ${phone} signature upload`);
+        socket.emit("customer:signature-upload-acknowledged", {
+          success: false,
+          message: "No active call found on server"
+        });
         return;
       }
 
@@ -1707,9 +1735,19 @@ const handleSocketConnection = async (socket, io) => {
           signaturePath,
           timestamp
         });
-        console.log(`📣 Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail}`);
+        console.log(`📣 Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
+
+        // Acknowledge to customer
+        socket.emit("customer:signature-upload-acknowledged", {
+          success: true,
+          message: "Signature forwarded to manager"
+        });
       } else {
-        console.log(`⚠️ No manager socket found for signature of customer ${phone}`);
+        console.log(`⚠️ No manager socket found for signature of customer ${phone} (Manager: ${activeCall.currentManagerEmail})`);
+        socket.emit("customer:signature-upload-acknowledged", {
+          success: false,
+          message: "Could not find an active manager connection"
+        });
       }
     });
 
