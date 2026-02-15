@@ -1778,16 +1778,20 @@ const handleSocketConnection = async (socket, io) => {
         (user) => user.email === activeCall.currentManagerEmail
       );
 
+      // Priority: 1. Current online socket, 2. Stored socket in call data
       const managerSocketId = targetManager?.socketId || activeCall.managerSocketId;
-      console.log(`📡 Sending signature to manager ${activeCall.currentManagerEmail} at socket: ${managerSocketId} (Found in online: ${!!targetManager})`);
+
+      console.log(`📡 Signature Sync: Forwarding to manager ${activeCall.currentManagerEmail}`);
+      console.log(`📡 Detail: Found in online cache: ${!!targetManager}. Target Socket: ${managerSocketId}`);
 
       if (managerSocketId) {
         io.to(managerSocketId).emit("customer:signature-uploaded", {
           customerId: phone,
           signaturePath,
-          timestamp
+          timestamp,
+          managerEmail: activeCall.currentManagerEmail // Add for verification
         });
-        console.log(`✅ Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
+        console.log(`✅ SUCCESS: Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
 
         // Acknowledge to customer
         socket.emit("customer:signature-upload-acknowledged", {
