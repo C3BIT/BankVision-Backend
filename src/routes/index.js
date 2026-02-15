@@ -13,6 +13,7 @@ const adminRoute = require("./admin.route");
 const openviduRoute = require("./openvidu.route");
 const recordingRoute = require("./recording.route");
 const callReportRoute = require("./callReport.route");
+const signatureRoute = require("./signature.route");
 const router = express.Router();
 const defaultRoutes = [
   {
@@ -30,6 +31,10 @@ const defaultRoutes = [
   {
     path: "/face",
     route: faceRoute,
+  },
+  {
+    path: "/signature",
+    route: signatureRoute,
   },
   {
     path: "/customer",

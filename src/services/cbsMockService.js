@@ -76,6 +76,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`, // Mock signature image
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -89,6 +90,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 45, Road 12, Gulshan 2, Dhaka 1212",
       branch: "Gulshan 2 Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/rizwan_riyad.jpeg`, // Mock signature image
       nidNumber: "19901234567890123",
       dateOfBirth: "1990-05-15",
       accountStatus: "active",
@@ -105,6 +107,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`, // Mock signature image
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -118,6 +121,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/iftekhar_ucchash.png`, // Mock signature image
       nidNumber: "19881234567890456",
       dateOfBirth: "1988-03-20",
       accountStatus: "active",
@@ -134,6 +138,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`, // Mock signature image
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -147,6 +152,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "House 32, Road 5, Dhanmondi, Dhaka 1205",
       branch: "Dhanmondi Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/tarek_raihan.png`, // Mock signature image
       nidNumber: "19851234567890789",
       dateOfBirth: "1985-08-12",
       accountStatus: "active",
@@ -163,6 +169,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`, // Mock signature image
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",
@@ -179,6 +186,7 @@ const MOCK_CBS_CUSTOMERS = {
       address: "Mirpur DOHS, Mirpur",
       branch: "Mirpur DOHS Branch",
       profileImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`,
+      signatureImage: `${PROFILE_IMAGE_BASE}/nafiz_ahmed.png`, // Mock signature image
       nidNumber: "5117882927",
       dateOfBirth: "2004-01-15",
       accountStatus: "active",
@@ -288,6 +296,7 @@ const lookupCustomerByPhone = async (phone) => {
       address: customer.address,
       branch: customer.branch,
       profileImage: customer.profileImage,
+      signatureImage: customer.signatureImage,
       totalAccounts: accounts.length
     };
   } catch (error) {
@@ -339,6 +348,7 @@ const getCustomerByAccountNumber = async (accountNumber) => {
       address: customer.address,
       branch: customer.branch,
       profileImage: customer.profileImage,
+      signatureImage: customer.signatureImage,
       nidNumber: customer.nidNumber,
       dateOfBirth: customer.dateOfBirth
     };

@@ -1654,6 +1654,71 @@ const handleSocketConnection = async (socket, io) => {
     });
     // ============ END FACE VERIFICATION EVENTS ============
 
+    // ============ SIGNATURE VERIFICATION EVENTS ============
+    socket.on("manager:request-signature-upload", (data) => {
+      if (role !== "manager") return;
+
+      const customerPhone = socket.user.customerPhone;
+      console.log(`✍️ Manager ${email} requesting signature upload from customer ${customerPhone}`);
+
+      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        return socket.emit("error", { message: "No active call with customer" });
+      }
+
+      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+
+      // Clear previous requests
+      clearCustomerRequests(customerSocketId);
+
+      io.to(customerSocketId).emit("manager:request-signature-upload", {
+        message: "Manager has requested your signature upload",
+        managerId: email,
+        managerName: name || null,
+        timestamp: Date.now()
+      });
+    });
+
+    socket.on("customer:signature-uploaded", (data) => {
+      if (role !== "customer") return;
+
+      const { signaturePath, timestamp } = data;
+      console.log(`✍️ Customer ${phone} uploaded signature: ${signaturePath}`);
+
+      const activeCall = activeCustomerCalls[phone];
+      if (!activeCall || !activeCall.managerSocketId) {
+        return;
+      }
+
+      io.to(activeCall.managerSocketId).emit("customer:signature-uploaded", {
+        customerId: phone,
+        signaturePath,
+        timestamp
+      });
+    });
+
+    socket.on("manager:signature-verification-decision", (data) => {
+      if (role !== "manager") return;
+
+      const { customerId, decision, message } = data;
+      console.log(`✍️ Manager ${email} decision for signature of ${customerId}: ${decision}`);
+
+      if (!activeCustomerCalls[customerId]) return;
+
+      const customerSocketId = activeCustomerCalls[customerId].customerSocketId;
+
+      io.to(customerSocketId).emit("customer:signature-verification-decision", {
+        decision,
+        message,
+        timestamp: Date.now()
+      });
+
+      // Update call flags
+      if (decision === 'approve' || decision === 'approved') {
+        activeCustomerCalls[customerId].signatureVerified = true;
+      }
+    });
+    // ============ END SIGNATURE VERIFICATION EVENTS ============
+
     // ============ ADDRESS CHANGE EVENTS ============
     socket.on("change:address-permission", () => {
       if (role !== "manager") return;
