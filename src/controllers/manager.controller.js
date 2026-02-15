@@ -80,6 +80,7 @@ const registerManagerController = async (req, res) => {
       name,
       email,
       password: hashPassword,
+      passwordChangedAt: new Date(),
     });
     const responseData = {
       name: manager.name,

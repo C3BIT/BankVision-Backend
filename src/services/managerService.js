@@ -1,9 +1,9 @@
 const bcrypt = require("bcryptjs");
 const { Manager } = require("../models/Manager");
 
-const registerManager = async ({ name, email, phone, password }) => {
+const registerManager = async ({ name, email, phone, password, passwordChangedAt }) => {
   try {
-    return await Manager.create({ name, email, phone, password });
+    return await Manager.create({ name, email, phone, password, passwordChangedAt });
   } catch (error) {
     throw error;
   }
