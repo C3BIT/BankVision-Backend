@@ -1,15 +1,22 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const path = require('path');
+const fs = require('fs');
+const { AccessToken } = require('livekit-server-sdk');
 const { Admin } = require('../models/Admin');
-const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog } = require('../models');
+const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog } = require('../models');
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { logAdminActivity, getClientIP } = require('../services/loggingService');
 const { getActiveCallsData, getOnlineManagersData } = require('../services/socketHandler');
+const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
 const { checkPasswordExpiry } = require('../middlewares/passwordExpiryMiddleware');
 
 const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+
+// In-memory whisper mode state (per server instance)
+const whisperModeState = { active: false };
 
 // Admin Registration (usually seeded or created by super admin)
 const registerAdmin = async (req, res) => {
@@ -190,9 +197,38 @@ const getManagers = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Merge real-time socket status for each manager
+    const onlineManagersData = getOnlineManagersData(); // in-memory from socket handler
+    const activeCallsData = getActiveCallsData();
+
+    const enrichedManagers = managers.map(mgr => {
+      const plain = mgr.get({ plain: true });
+      const liveData = onlineManagersData.find(m => m.email === plain.email) || {};
+      const activeCall = activeCallsData.find(c => c.managerEmail === plain.email) || null;
+
+      return {
+        ...plain,
+        status: liveData.status || 'offline',
+        statusChangedAt: liveData.statusChangedAt || null,
+        currentCallDuration: activeCall
+          ? Math.floor((Date.now() - activeCall.startTime) / 1000)
+          : null,
+        currentCustomerPhone: activeCall ? activeCall.customerPhone : null,
+        currentCallRoom: activeCall ? activeCall.callRoom : null
+      };
+    });
+
+    // Sidebar summary stats
+    const sidebarStats = {
+      activeCalls: activeCallsData.length,
+      onlineManagers: onlineManagersData.filter(m => m.status === 'online').length,
+      busyManagers: onlineManagersData.filter(m => m.status === 'busy').length
+    };
+
     res.json({
       success: true,
-      data: managers
+      data: enrichedManagers,
+      stats: sidebarStats
     });
   } catch (error) {
     console.error('Get Managers Error:', error);
@@ -210,6 +246,27 @@ const getDashboardStats = async (req, res) => {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Helper to fetch call stats for a given date range
+    const fetchCallStats = async (start, end) => {
+      const calls = await CallLog.findAll({
+        where: {
+          createdAt: {
+            [Op.between]: [start, end]
+          }
+        }
+      });
+      const total = calls.length;
+      const completed = calls.filter(c => c.status === 'completed').length;
+      const missed = calls.filter(c => c.status === 'missed' || c.status === 'rejected').length;
+      const avgDuration = total > 0
+        ? Math.round(calls.reduce((sum, c) => sum + (c.duration || 0), 0) / total)
+        : 0;
+      return { total, completed, missed, avgDuration };
+    };
 
     // Today's call statistics
     const todayCalls = await CallLog.findAll({
@@ -280,6 +337,61 @@ const getDashboardStats = async (req, res) => {
     const onlineManagers = getOnlineManagersData();
     console.log('📊 Dashboard API - activeCalls:', activeCalls.length, '- onlineManagers:', onlineManagers.length, onlineManagers);
 
+    // --- NEW: Yesterday stats for % delta calculations ---
+    const yesterdayStats = await fetchCallStats(yesterday, today);
+    const calcDelta = (todayVal, yesterdayVal) => {
+      if (!yesterdayVal) return null;
+      return parseFloat(((todayVal - yesterdayVal) / yesterdayVal * 100).toFixed(1));
+    };
+
+    // --- NEW: Pending queue count from BullMQ ---
+    let pendingInQueue = 0;
+    try {
+      const queueStats = await getQueueStats();
+      pendingInQueue = queueStats.waiting + queueStats.active + queueStats.delayed;
+    } catch (e) {
+      // Queue service may not be reachable; default to 0
+    }
+
+    // --- NEW: Identity match success rate (face verifications today) ---
+    const faceVerificationsToday = await VerificationLog.findAll({
+      where: {
+        verificationType: 'face',
+        requestedAt: { [Op.between]: [today, tomorrow] }
+      },
+      attributes: ['status']
+    });
+    const faceTotal = faceVerificationsToday.length;
+    const faceVerified = faceVerificationsToday.filter(v => v.status === 'verified').length;
+    const identityMatchSuccessRate = faceTotal > 0
+      ? parseFloat((faceVerified / faceTotal * 100).toFixed(1))
+      : null;
+
+    // --- NEW: OTP failure rate today (otp type) ---
+    const otpLogsToday = await VerificationLog.findAll({
+      where: {
+        verificationType: 'otp',
+        requestedAt: { [Op.between]: [today, tomorrow] }
+      },
+      attributes: ['status']
+    });
+    const otpTotal = otpLogsToday.length;
+    const otpFailed = otpLogsToday.filter(v => v.status === 'failed').length;
+    const otpFailureRate = otpTotal > 0
+      ? `${otpFailed}/${otpTotal}`
+      : null;
+
+    // --- NEW: Recent calls (last 10) with whisperEnabled ---
+    const recentCalls = await CallLog.findAll({
+      order: [['createdAt', 'DESC']],
+      limit: 10,
+      attributes: [
+        'id', 'referenceNumber', 'customerPhone', 'customerName',
+        'managerEmail', 'managerName', 'duration', 'status',
+        'whisperEnabled', 'createdAt'
+      ]
+    });
+
     res.json({
       success: true,
       data: {
@@ -288,10 +400,22 @@ const getDashboardStats = async (req, res) => {
           completedCalls,
           missedCalls,
           avgDuration,
-          avgRating: parseFloat(avgRating)
+          avgRating: parseFloat(avgRating),
+          pendingInQueue,
+          identityMatchSuccessRate,
+          otpFailureRate,
+          yesterdayDeltas: {
+            totalCalls: calcDelta(totalCallsToday, yesterdayStats.total),
+            avgDuration: calcDelta(avgDuration, yesterdayStats.avgDuration),
+            activeManagers: calcDelta(
+              onlineManagers.filter(m => m.status === 'online').length,
+              null // no persistent yesterday manager count; future: store snapshot
+            )
+          }
         },
         totalManagers,
         weeklyTrend: Object.values(weeklyTrend),
+        recentCalls,
         realtime: {
           activeCalls: activeCalls.length,
           onlineManagers: onlineManagers.filter(m => m.status === 'online').length,
@@ -816,6 +940,137 @@ const getSecuritySummary = async (req, res) => {
   }
 };
 
+// ==================== RECORDING DOWNLOAD ====================
+
+// Download or redirect to recording file
+const downloadRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const recording = await Recording.findByPk(id);
+
+    if (!recording) {
+      return res.status(404).json({ success: false, message: 'Recording not found' });
+    }
+
+    if (recording.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Recording is not available for download (status: ${recording.status})`
+      });
+    }
+
+    const storageUrl = recording.storageUrl || recording.filePath;
+
+    if (!storageUrl) {
+      return res.status(404).json({ success: false, message: 'Recording file not found' });
+    }
+
+    const filename = recording.metadata?.filename || path.basename(storageUrl);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // If it's a local file path (starts with /uploads/)
+    if (storageUrl.startsWith('/uploads/') || storageUrl.startsWith('uploads/')) {
+      const localPath = path.join(__dirname, '../../', storageUrl);
+      if (!fs.existsSync(localPath)) {
+        return res.status(404).json({ success: false, message: 'Recording file not found on disk' });
+      }
+      res.setHeader('Content-Type', 'video/mp4');
+      return fs.createReadStream(localPath).pipe(res);
+    }
+
+    // External URL (MinIO / S3) — redirect
+    return res.redirect(302, storageUrl);
+  } catch (error) {
+    console.error('Download Recording Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to download recording' });
+  }
+};
+
+// ==================== WHISPER / SUPERVISOR MONITORING ====================
+
+// Generate a LiveKit whisper token for silent call listening
+const generateWhisperToken = async (req, res) => {
+  try {
+    const { roomName } = req.body;
+
+    if (!roomName) {
+      return res.status(400).json({ success: false, message: 'roomName is required' });
+    }
+
+    const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
+    const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
+
+    if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+      return res.status(500).json({ success: false, message: 'LiveKit credentials not configured' });
+    }
+
+    const supervisorIdentity = `supervisor_${req.admin.id}_${Date.now()}`;
+
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity: supervisorIdentity,
+      name: `Supervisor: ${req.admin.name || req.admin.email}`,
+      ttl: '2h'
+    });
+
+    at.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: false,       // Silent listener — cannot publish audio/video
+      canSubscribe: true,      // Can subscribe to all tracks
+      canPublishData: false,   // Cannot send data messages
+      hidden: true             // Hidden from participant list
+    });
+
+    const token = await at.toJwt();
+
+    res.json({
+      success: true,
+      data: {
+        token,
+        roomName,
+        identity: supervisorIdentity,
+        livekitUrl: process.env.LIVEKIT_URL
+      }
+    });
+  } catch (error) {
+    console.error('Generate Whisper Token Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to generate whisper token' });
+  }
+};
+
+// Toggle global whisper mode on/off
+const toggleWhisperMode = async (req, res) => {
+  try {
+    whisperModeState.active = !whisperModeState.active;
+
+    res.json({
+      success: true,
+      data: {
+        whisperModeActive: whisperModeState.active
+      }
+    });
+  } catch (error) {
+    console.error('Toggle Whisper Mode Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to toggle whisper mode' });
+  }
+};
+
+// Get current whisper mode state
+const getWhisperMode = async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        whisperModeActive: whisperModeState.active
+      }
+    });
+  } catch (error) {
+    console.error('Get Whisper Mode Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to get whisper mode' });
+  }
+};
+
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -831,5 +1086,9 @@ module.exports = {
   getAuthenticationLogs,
   getTransactionLogs,
   getAdminActivityLogs,
-  getSecuritySummary
+  getSecuritySummary,
+  downloadRecording,
+  generateWhisperToken,
+  toggleWhisperMode,
+  getWhisperMode
 };

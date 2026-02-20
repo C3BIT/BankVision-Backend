@@ -105,6 +105,11 @@ const CallLog = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    whisperEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: "Whether a supervisor was silently listening via whisper mode",
+    },
   },
   {
     timestamps: true,

@@ -39,15 +39,20 @@ const clearAuthCookie = (res) => {
  * @returns {string|null} - JWT token or null
  */
 const getTokenFromRequest = (req) => {
-  // First, try to get from cookie (preferred)
+  // 1. Try cookie (preferred)
   if (req.cookies && req.cookies.auth_token) {
     return req.cookies.auth_token;
   }
 
-  // Fallback to Authorization header (for backward compatibility)
+  // 2. Try Authorization header
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.split(' ')[1];
+  }
+
+  // 3. Try query param (for direct download links, etc.)
+  if (req.query && req.query.token) {
+    return req.query.token;
   }
 
   return null;
