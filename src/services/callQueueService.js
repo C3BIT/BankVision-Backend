@@ -176,6 +176,15 @@ async function getQueuePosition(customerPhone) {
  */
 async function getQueueStats() {
   try {
+    // If Redis is not ready, return empty stats immediately to avoid hang
+    if (connection.status !== 'ready') {
+      console.warn('⚠️ Redis not ready, returning empty queue stats');
+      return {
+        waiting: 0, active: 0, delayed: 0, completed: 0, failed: 0,
+        total: 0, avgWaitTimeSeconds: 0, serviceLevel: 100
+      };
+    }
+
     const [waiting, active, delayed, completed, failed] = await Promise.all([
       callQueue.getWaitingCount(),
       callQueue.getActiveCount(),
@@ -235,6 +244,8 @@ async function getQueueStats() {
  */
 async function getQueuedCustomers() {
   try {
+    if (connection.status !== 'ready') return [];
+
     // CRITICAL: Include 'prioritized' state - BullMQ jobs start in this state before transitioning to 'waiting'
     const jobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
 
