@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { getTokenFromRequest } = require('../utils/cookieHelper');
 
-const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+const { jwtSecret } = require('../configs/variables');
 
 const adminAuthenticateMiddleware = (req, res, next) => {
   try {

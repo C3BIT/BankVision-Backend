@@ -13,7 +13,7 @@ const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
 const { checkPasswordExpiry } = require('../middlewares/passwordExpiryMiddleware');
 
-const jwtSecret = process.env.JWT_SECRET || 'your-secret-key';
+const { jwtSecret } = require('../configs/variables');
 
 // In-memory whisper mode state (per server instance)
 const whisperModeState = { active: false };
