@@ -16,6 +16,7 @@ const {
   getAdminActivityLogs,
   getSecuritySummary,
   downloadRecording,
+  generateWhisperToken,
   toggleWhisperMode,
   getWhisperMode,
   syncRecordings
