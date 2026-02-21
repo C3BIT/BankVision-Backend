@@ -389,5 +389,6 @@ module.exports = {
   stopRecording,
   getRecordingStatus,
   listActiveRecordings,
-  getRecordingUrl
+  getRecordingUrl,
+  stopRecordingForCall
 };
