@@ -581,7 +581,7 @@ const getRecordings = async (req, res) => {
         {
           model: CallLog,
           as: 'callLog',
-          attributes: ['id', 'customerName', 'status', 'duration']
+          attributes: ['id', 'customerName', 'managerEmail', 'managerName', 'status', 'duration']
         }
       ]
     });
