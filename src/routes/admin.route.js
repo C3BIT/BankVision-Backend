@@ -16,9 +16,9 @@ const {
   getAdminActivityLogs,
   getSecuritySummary,
   downloadRecording,
-  generateWhisperToken,
   toggleWhisperMode,
-  getWhisperMode
+  getWhisperMode,
+  syncRecordings
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
@@ -41,6 +41,7 @@ router.get('/recordings/:id/download', adminAuthenticateMiddleware, downloadReco
 router.get('/recordings/:id', adminAuthenticateMiddleware, getRecording);
 router.put('/recordings/:id', adminAuthenticateMiddleware, updateRecording);
 router.delete('/recordings/:id', adminAuthenticateMiddleware, deleteRecording);
+router.post('/recordings/sync', adminAuthenticateMiddleware, syncRecordings);
 
 // Supervisor routes
 router.get('/active-calls', supervisorAuthMiddleware, getActiveCalls);

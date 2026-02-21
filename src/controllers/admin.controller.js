@@ -1071,6 +1071,39 @@ const getWhisperMode = async (req, res) => {
 };
 
 
+const syncRecordings = async (req, res) => {
+  try {
+    const recordingService = require('../services/recordingService');
+    const { Recording } = require('../models');
+
+    // Find all stuck recordings
+    const stuckRecordings = await Recording.findAll({
+      where: { status: 'recording' }
+    });
+
+    console.log(`🧹 Syncing ${stuckRecordings.length} stuck recordings...`);
+
+    const results = [];
+    for (const rec of stuckRecordings) {
+      try {
+        await recordingService.stopRecording(rec.egressId);
+        results.push({ id: rec.id, egressId: rec.egressId, status: 'synced' });
+      } catch (err) {
+        results.push({ id: rec.id, egressId: rec.egressId, status: 'failed', error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Synced ${stuckRecordings.length} recordings`,
+      results
+    });
+  } catch (error) {
+    console.error('❌ Sync recordings failed:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -1090,5 +1123,6 @@ module.exports = {
   downloadRecording,
   generateWhisperToken,
   toggleWhisperMode,
-  getWhisperMode
+  getWhisperMode,
+  syncRecordings  // Added
 };
