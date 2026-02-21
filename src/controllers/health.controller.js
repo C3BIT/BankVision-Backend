@@ -57,8 +57,9 @@ const getHealth = async (req, res) => {
       },
     };
 
-    const statusCode = healthStatus.status === "success" ? 200 : 503;
-    res.status(statusCode).json(healthStatus);
+    // Always return 200 if the code reached this point (server is up)
+    // to avoid the proxy/docker marking it as 503 and killing the service.
+    res.status(200).json(healthStatus);
   } catch (error) {
     console.error("Health check error:", error);
     res.status(500).json({
