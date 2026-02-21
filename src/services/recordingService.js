@@ -117,13 +117,13 @@ const stopRecording = async (egressId) => {
   try {
     const egressClient = createEgressClient();
 
-    // Stop the egress
+    // Stop the egress (even if not in our DB, we should try to stop it on LiveKit if we have ID)
     await egressClient.stopEgress(egressId);
     console.log(`🛑 Recording stopped for egressId: ${egressId}`);
 
     // Update recording in database to processing
     const recording = await Recording.findOne({ where: { egressId } });
-    if (recording) {
+    if (recording && recording.status === 'recording') {
       const endTime = new Date();
       const duration = Math.floor((endTime - recording.startTime) / 1000);
 
@@ -141,7 +141,7 @@ const stopRecording = async (egressId) => {
       } catch (err) {
         console.error(`❌ Failed to finalize recording ${egressId}:`, err.message);
       }
-    }, 15000); // Wait 15 seconds for processing
+    }, 15000);
 
     return {
       success: true,
@@ -151,7 +151,35 @@ const stopRecording = async (egressId) => {
     };
   } catch (error) {
     console.error(`❌ Failed to stop recording ${egressId}:`, error);
+    // If it's already stopped or not found on LiveKit, still update our DB
+    if (error.message?.includes('not found') || error.message?.includes('already stopping')) {
+      const recording = await Recording.findOne({ where: { egressId } });
+      if (recording && recording.status === 'recording') {
+        await recording.update({ status: 'processing' });
+      }
+    }
     throw error;
+  }
+};
+
+/**
+ * Find and stop any active recording for a specific call log or room
+ * (Self-healing for backend restarts)
+ */
+const stopRecordingForCall = async (callLogId) => {
+  try {
+    const recording = await Recording.findOne({
+      where: { callLogId, status: 'recording' }
+    });
+
+    if (recording && recording.egressId) {
+      console.log(`🩹 Self-healing: Stopping orphaned recording for callLog ${callLogId}`);
+      return await stopRecording(recording.egressId);
+    }
+    return { success: false, message: 'No active recording found for this call' };
+  } catch (error) {
+    console.error(`❌ Self-healing stop failed for call ${callLogId}:`, error);
+    return { success: false, error: error.message };
   }
 };
 

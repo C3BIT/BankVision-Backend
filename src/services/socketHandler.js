@@ -339,13 +339,22 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Auto-stop recording
-        if (activeCustomerCalls[phone]?.egressId) {
+        const callData = activeCustomerCalls[phone];
+        if (callData?.egressId) {
           try {
             const recordingService = require('./recordingService');
-            await recordingService.stopRecording(activeCustomerCalls[phone].egressId);
-            console.log(`🛑 Auto-recording stopped for call ${activeCustomerCalls[phone].callRoom}`);
+            await recordingService.stopRecording(callData.egressId);
+            console.log(`🛑 Auto-recording stopped for call ${callData.callRoom}`);
           } catch (recErr) {
             console.error("⚠️ Failed to auto-stop recording:", recErr.message);
+          }
+        } else if (callData?.callLogId) {
+          // Self-healing: try to stop by callLogId if memory lost egressId
+          try {
+            const recordingService = require('./recordingService');
+            await recordingService.stopRecordingForCall(callData.callLogId);
+          } catch (err) {
+            console.error("⚠️ Self-healing recording stop failed:", err.message);
           }
         }
 
@@ -407,13 +416,22 @@ const handleSocketConnection = async (socket, io) => {
           );
 
           // Auto-stop recording
-          if (activeCustomerCalls[customerPhone]?.egressId) {
+          const callData = activeCustomerCalls[customerPhone];
+          if (callData?.egressId) {
             try {
               const recordingService = require('./recordingService');
-              await recordingService.stopRecording(activeCustomerCalls[customerPhone].egressId);
-              console.log(`🛑 Auto-recording stopped for call ${activeCustomerCalls[customerPhone].callRoom}`);
+              await recordingService.stopRecording(callData.egressId);
+              console.log(`🛑 Auto-recording stopped for call ${callData.callRoom}`);
             } catch (recErr) {
               console.error("⚠️ Failed to auto-stop recording:", recErr.message);
+            }
+          } else if (callData?.callLogId) {
+            // Self-healing: try to stop by callLogId if memory lost egressId
+            try {
+              const recordingService = require('./recordingService');
+              await recordingService.stopRecordingForCall(callData.callLogId);
+            } catch (err) {
+              console.error("⚠️ Self-healing recording stop failed:", err.message);
             }
           }
 
