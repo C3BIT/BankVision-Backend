@@ -9,8 +9,14 @@ const getHealth = async (req, res) => {
     try {
       if (!sequelize) {
         console.error("CRITICAL: sequelize object is UNDEFINED in health controller");
+        dbStatus = "disconnected";
+      } else {
+        // Add a 5s timeout to the database authentication - prevents health check from hanging
+        await Promise.race([
+          sequelize.authenticate(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Database timeout')), 5000))
+        ]);
       }
-      await sequelize.authenticate();
     } catch (err) {
       console.error("Database health check failed. Error type:", err.constructor.name);
       console.error("Error message:", err.message);
@@ -22,12 +28,16 @@ const getHealth = async (req, res) => {
     const { connection } = require('../services/callQueueService');
     try {
       if (connection) {
-        await connection.ping();
+        // Add a 5s timeout to the Redis ping
+        await Promise.race([
+          connection.ping(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 5000))
+        ]);
       } else {
         redisStatus = "disconnected";
       }
     } catch (err) {
-      console.error("Redis health check failed:", err);
+      console.error("Redis health check failed:", err.message);
       redisStatus = "disconnected";
     }
     // Check Email (SMTP) status
