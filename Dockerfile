@@ -23,6 +23,10 @@ COPY . .
 FROM node:20-alpine
 WORKDIR /app
 
+# Set production environment variables
+ENV NODE_ENV=production
+ENV PORT=5094
+
 # Install wget for healthcheck
 RUN apk add --no-cache wget
 
@@ -30,12 +34,11 @@ RUN apk add --no-cache wget
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 COPY --from=build /app/package.json ./
+# Copy .env if it exists (for variables.js to pick up other configs)
+COPY .env* ./
 
 # Create uploads directory
 RUN mkdir -p /app/uploads
-
-# Switch to non-root user (Disabled to fix EACCES on volume mounts)
-# USER node
 
 # Expose port
 EXPOSE 5094
