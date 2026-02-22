@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const cookieParser = require("cookie-parser");
-require('dotenv').config()
+require('dotenv').config({ override: true })
 const routes = require("./routes/index.js");
 const { PORT } = require("./configs/variables.js");
 const bodyParser = require("body-parser");
