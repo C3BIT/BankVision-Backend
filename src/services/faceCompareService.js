@@ -1,14 +1,14 @@
 const axios = require("axios");
 const https = require("https");
-const { MXFACE_KEY, OPENCV_SERVICE_URL } = require("../configs/variables");
+const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL } = require("../configs/variables");
 const rekognition = require("../configs/rekognition");
 
 // MXFace API (legacy)
-const API_URL = "https://faceapi.mxface.ai/api/v3/face/";
+const API_URL = MXFACE_API_URL || "https://faceapi.mxface.ai/api/v3/face/";
 const SUBSCRIPTION_KEY = MXFACE_KEY;
 
 // OpenCV Service URL (default to local Docker)
-const OPENCV_URL = OPENCV_SERVICE_URL || "http://localhost:5097";
+const OPENCV_URL = OPENCV_SERVICE_URL || "http://opencv-face-service:5097";
 
 const fs = require("fs").promises;
 const path = require("path");

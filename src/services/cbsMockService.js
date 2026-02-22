@@ -14,6 +14,7 @@
  */
 
 const crypto = require("crypto");
+const { MINIO_PUBLIC_URL: PUBLIC_URL_VAR, PLACEHOLD_JP_URL } = require("../configs/variables");
 
 // ============================================================
 // MOCK CBS DATABASE - Simulates bank's customer data
@@ -62,9 +63,9 @@ const MOCK_CBS_LOANS = {
 };
 
 // Profile image URL base
-const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || "http://localhost:3000";
+const MINIO_PUBLIC_URL = PUBLIC_URL_VAR || "http://localhost:5094";
 const PROFILE_IMAGE_BASE = `${MINIO_PUBLIC_URL}/uploads/profiles`;
-const SIGNATURE_IMAGE_BASE = `https://placehold.jp/24/f0f0f0/333333/200x100.png?text=Signature%20of%20`;
+const SIGNATURE_IMAGE_BASE = `${PLACEHOLD_JP_URL}24/f0f0f0/333333/200x100.png?text=Signature%20of%20`;
 
 const MOCK_CBS_CUSTOMERS = {
   // Rizwan Riyad - Business Owner with multiple accounts, premium cards, and loans

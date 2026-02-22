@@ -7,6 +7,7 @@
  */
 
 const crypto = require("crypto");
+const { RANDOM_USER_API_URL } = require("../configs/variables");
 
 // Mock NID database for testing
 const mockNIDDatabase = {
@@ -18,7 +19,7 @@ const mockNIDDatabase = {
     permanentAddress: "123 Main Street, Dhaka, Bangladesh",
     presentAddress: "456 Oak Avenue, Dhaka, Bangladesh",
     bloodGroup: "O+",
-    photo: "https://randomuser.me/api/portraits/men/1.jpg",
+    photo: `${RANDOM_USER_API_URL}men/1.jpg`,
     nidNumber: "1234567890",
     issuedDate: "2010-01-20",
     status: "valid"
@@ -31,7 +32,7 @@ const mockNIDDatabase = {
     permanentAddress: "789 Pine Road, Chittagong, Bangladesh",
     presentAddress: "321 Elm Street, Chittagong, Bangladesh",
     bloodGroup: "A+",
-    photo: "https://randomuser.me/api/portraits/women/1.jpg",
+    photo: `${RANDOM_USER_API_URL}women/1.jpg`,
     nidNumber: "0987654321",
     issuedDate: "2015-06-10",
     status: "valid"
@@ -44,7 +45,7 @@ const mockNIDDatabase = {
     permanentAddress: "555 Test Street, Sylhet, Bangladesh",
     presentAddress: "555 Test Street, Sylhet, Bangladesh",
     bloodGroup: "B+",
-    photo: "https://randomuser.me/api/portraits/men/2.jpg",
+    photo: `${RANDOM_USER_API_URL}men/2.jpg`,
     nidNumber: "5555555555",
     issuedDate: "2012-09-05",
     status: "valid"
@@ -57,7 +58,7 @@ const mockNIDDatabase = {
     permanentAddress: "111 Old Street, Khulna, Bangladesh",
     presentAddress: "111 Old Street, Khulna, Bangladesh",
     bloodGroup: "AB-",
-    photo: "https://randomuser.me/api/portraits/men/3.jpg",
+    photo: `${RANDOM_USER_API_URL}men/3.jpg`,
     nidNumber: "1111111111",
     issuedDate: "2005-01-01",
     status: "expired"
@@ -118,7 +119,7 @@ const lookupNID = async (nidNumber) => {
         permanentAddress: "Mock Address, Bangladesh",
         presentAddress: "Mock Address, Bangladesh",
         bloodGroup: "O+",
-        photo: `https://randomuser.me/api/portraits/men/${parseInt(cleanedNID.substring(0, 2)) % 100}.jpg`,
+        photo: `${RANDOM_USER_API_URL}men/${parseInt(cleanedNID.substring(0, 2)) % 100}.jpg`,
         issuedDate: "2015-01-01",
         status: "valid"
       };

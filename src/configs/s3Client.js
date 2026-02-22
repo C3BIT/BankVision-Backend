@@ -1,13 +1,8 @@
 const { S3Client } = require("@aws-sdk/client-s3");
-const dotenv = require("dotenv");
-
-dotenv.config();
+const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_USE_SSL: USE_SSL_VAR } = require("./variables");
 
 // MinIO Configuration
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || "http://openvidu-minio:9000";
-const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || "vbrm_minio_key";
-const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || "VbrmMinIO2024SecureKey";
-const MINIO_USE_SSL = process.env.MINIO_USE_SSL === "true";
+const MINIO_USE_SSL = USE_SSL_VAR === "true";
 
 console.log('🗄️ Configuring S3 Client for MinIO:', {
   endpoint: MINIO_ENDPOINT,

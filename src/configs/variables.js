@@ -23,9 +23,15 @@ module.exports = {
   SMS_API_KEY: process.env.SMS_API_KEY,
   SMS_API_URL: process.env.SMS_API_URL || "https://api.sms.net.bd/sendsms",
   MXFACE_KEY: process.env.MXFACE_KEY,
+  MXFACE_API_URL: process.env.MXFACE_API_URL || "https://faceapi.mxface.ai/api/v3/face/",
+
+  // Mock Service Resources
+  RANDOM_USER_API_URL: process.env.RANDOM_USER_API_URL || "https://randomuser.me/api/portraits/",
+  PLACEHOLD_JP_URL: process.env.PLACEHOLD_JP_URL || "https://placehold.jp/",
 
   // Storage config
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || "s3",
+  MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || "http://openvidu-minio:9000",
   MINIO_BUCKET: process.env.MINIO_BUCKET || "vbrm",
   MINIO_PUBLIC_URL: process.env.MINIO_PUBLIC_URL,
 
@@ -40,10 +46,10 @@ module.exports = {
   AWS_REGION: process.env.AWS_REGION || "us-east-1",
 
   // OpenCV Face Service
-  OPENCV_SERVICE_URL: process.env.OPENCV_SERVICE_URL,
+  OPENCV_SERVICE_URL: process.env.OPENCV_SERVICE_URL || "http://opencv-face-service:5097",
 
   // Redis
-  REDIS_HOST: process.env.REDIS_HOST,
+  REDIS_HOST: process.env.REDIS_HOST || "vbrm-redis",
   REDIS_PORT: process.env.REDIS_PORT || 6379,
   REDIS_PASSWORD: process.env.REDIS_PASSWORD,
 };
