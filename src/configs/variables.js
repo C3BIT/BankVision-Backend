@@ -2,7 +2,7 @@ require('dotenv').config({ override: true }); // Load from .env and override pro
 
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "production",
-  PORT: process.env.PORT || 5094,
+  PORT: process.env.PORT || 3000,
   jwtSecret: process.env.JWT_SECRET || "vb_jwt_secret",
   JWT_EXPIRATION: process.env.JWT_EXPIRATION,
 
