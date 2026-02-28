@@ -14,6 +14,7 @@ const openviduRoute = require("./openvidu.route");
 const recordingRoute = require("./recording.route");
 const callReportRoute = require("./callReport.route");
 const signatureRoute = require("./signature.route");
+const webhookRoute = require("./webhook.route");
 const router = express.Router();
 const defaultRoutes = [
   {
@@ -75,6 +76,10 @@ const defaultRoutes = [
   {
     path: "/call-reports",
     route: callReportRoute,
+  },
+  {
+    path: "/webhook",
+    route: webhookRoute,
   },
 ];
 

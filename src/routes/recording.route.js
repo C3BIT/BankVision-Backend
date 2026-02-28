@@ -149,6 +149,23 @@ router.get('/list', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
+ * POST /api/recording/sync
+ * Sync all recordings status (Admin only)
+ */
+router.post('/sync', adminAuthenticateMiddleware, async (req, res) => {
+  try {
+    const result = await recordingService.syncRecordings();
+    res.json(result);
+  } catch (error) {
+    console.error('Sync recordings error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to sync recordings'
+    });
+  }
+});
+
+/**
  * GET /api/recording/:id
  * Get recording details (Admin only)
  */

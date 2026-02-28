@@ -3988,6 +3988,18 @@ const handleSocketConnection = async (socket, io) => {
           console.log(`📋 Customer ${phone} removed from queue on disconnect`);
           broadcastQueueAndStatus(io);
         }
+        // Auto-stop recording if customer disconnects during call
+        const callData = activeCustomerCalls[phone];
+        if (callData?.egressId) {
+          try {
+            const recordingService = require('./recordingService');
+            await recordingService.stopRecording(callData.egressId);
+            console.log(`🛑 Auto-recording stopped for call ${callData.callRoom} on customer disconnect`);
+          } catch (recErr) {
+            console.error("⚠️ Failed to auto-stop recording on disconnect:", recErr.message);
+          }
+        }
+
         await clearActiveCustomerCall(phone, io);
       } else if (role === "manager") {
         Object.keys(activeCustomerCalls).forEach((customerPhone) => {
@@ -4309,6 +4321,20 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
   if (!activeCustomerCalls[normalizedPhone]) return;
 
   console.log(`🧹 Clearing active call for customer ${normalizedPhone}`);
+
+  // Auto-stop recording if still active during cleanup
+  const callData = activeCustomerCalls[normalizedPhone];
+  if (callData?.egressId) {
+    try {
+      const recordingService = require('./recordingService');
+      // Use fire-and-forget or ensure this doesn't block cleanup if it fails
+      recordingService.stopRecording(callData.egressId).catch(err => {
+        console.error(`⚠️ Failed to stop recording during call cleanup for ${normalizedPhone}:`, err.message);
+      });
+    } catch (recErr) {
+      console.error(`⚠️ Error triggering recording stop during cleanup for ${normalizedPhone}:`, recErr.message);
+    }
+  }
 
   if (activeCustomerCalls[normalizedPhone].timeout) {
     clearTimeout(activeCustomerCalls[normalizedPhone].timeout);

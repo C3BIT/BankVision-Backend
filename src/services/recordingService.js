@@ -192,76 +192,91 @@ const finalizeRecording = async (egressId) => {
   const path = require('path');
   const fs = require('fs');
 
-  // Get egress info
-  const egressList = await egressClient.listEgress({ egressId });
-  const egressInfo = egressList.find(e => e.egressId === egressId);
-
-  if (!egressInfo) {
-    console.log(`⚠️ Egress ${egressId} not found`);
-    return;
-  }
-
-  // Check if completed (status 3)
-  if (egressInfo.status !== 3) {
-    console.log(`⏳ Egress ${egressId} still processing (status: ${egressInfo.status})`);
-    // Retry after 10 seconds
-    setTimeout(() => finalizeRecording(egressId), 10000);
-    return;
-  }
-
+  // Check if we already finalized this to prevent race conditions from multiple triggers (e.g. timeout + webhook)
   const recording = await Recording.findOne({ where: { egressId } });
-  if (!recording) return;
-
-  const fileResult = egressInfo.fileResults?.[0];
-  if (!fileResult) {
-    await recording.update({ status: 'failed' });
+  if (!recording || recording.status === 'completed' || recording.status === 'failed') {
     return;
   }
 
-  const filename = fileResult.filename;
-  const fileSize = parseInt(fileResult.size);
-  const durationNs = parseInt(fileResult.duration);
-  const duration = Math.floor(durationNs / 1000000000);
+  // Get egress info
+  try {
+    const egressList = await egressClient.listEgress({ egressId });
+    const egressInfo = egressList.find(e => e.egressId === egressId);
 
-  // Check if file is in backup storage (MinIO upload failed)
-  if (fileResult.location.includes('/home/egress/backup_storage/')) {
-    console.log(`📁 Copying recording from egress container: ${filename}`);
-
-    const uploadsDir = path.join(__dirname, '../../uploads/recordings');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    if (!egressInfo) {
+      console.log(`⚠️ Egress ${egressId} not found during finalization`);
+      return;
     }
 
-    const localPath = path.join(uploadsDir, filename);
+    // Check if completed (status 3: COMPLETED, 4: FAILED)
+    if (egressInfo.status === 4) {
+      console.log(`❌ Egress ${egressId} failed on LiveKit server`);
+      await recording.update({ status: 'failed' });
+      return;
+    }
 
-    // Copy from egress container
-    await new Promise((resolve, reject) => {
-      exec(`docker cp egress:/home/egress/backup_storage/${filename} ${localPath}`, (err) => {
-        if (err) reject(err);
-        else resolve();
+    if (egressInfo.status !== 3) {
+      console.log(`⏳ Egress ${egressId} still processing (status: ${egressInfo.status})`);
+      return;
+    }
+
+    const fileResult = egressInfo.fileResults?.[0];
+    if (!fileResult) {
+      console.error(`❌ No file results found for completed egress ${egressId}`);
+      await recording.update({ status: 'failed' });
+      return;
+    }
+
+    const filename = fileResult.filename;
+    const fileSize = parseInt(fileResult.size);
+    const durationNs = parseInt(fileResult.duration);
+    const duration = Math.floor(durationNs / 1000000000);
+
+    // Check if file is in backup storage (MinIO upload failed)
+    if (fileResult.location.includes('/home/egress/backup_storage/')) {
+      console.log(`📁 Copying recording from egress container: ${filename}`);
+
+      const uploadsDir = path.join(__dirname, '../../uploads/recordings');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      const localPath = path.join(uploadsDir, filename);
+
+      // Copy from egress container
+      await new Promise((resolve, reject) => {
+        exec(`docker cp egress:/home/egress/backup_storage/${filename} ${localPath}`, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
       });
-    });
 
-    await recording.update({
-      status: 'completed',
-      filePath: filename,
-      storageUrl: `/uploads/recordings/${filename}`,
-      fileSize,
-      duration,
-    });
+      await recording.update({
+        status: 'completed',
+        filePath: filename,
+        storageUrl: `/uploads/recordings/${filename}`,
+        fileSize,
+        duration,
+        endTime: new Date(),
+      });
 
-    console.log(`✅ Recording finalized: ${filename}`);
-  } else {
-    // File is in MinIO
-    await recording.update({
-      status: 'completed',
-      filePath: filename,
-      storageUrl: fileResult.location,
-      fileSize,
-      duration,
-    });
+      console.log(`✅ Recording finalized via container copy: ${filename}`);
+    } else {
+      // File is in MinIO
+      await recording.update({
+        status: 'completed',
+        filePath: filename,
+        storageUrl: fileResult.location,
+        fileSize,
+        duration,
+        endTime: new Date(),
+      });
 
-    console.log(`✅ Recording finalized (MinIO): ${filename}`);
+      console.log(`✅ Recording finalized (MinIO): ${filename}`);
+    }
+  } catch (error) {
+    console.error(`❌ Error finalizing recording ${egressId}:`, error.message);
+    throw error;
   }
 };
 
@@ -384,11 +399,83 @@ const getRecordingUrl = async (recordingId) => {
   }
 };
 
+/**
+ * Sync all recordings in 'recording' status with LiveKit server
+ * @returns {object} Sync results
+ */
+const syncRecordings = async () => {
+  try {
+    const recordings = await Recording.findAll({
+      where: { status: 'recording' }
+    });
+
+    console.log(`🔄 Syncing ${recordings.length} active recording records...`);
+    const results = {
+      total: recordings.length,
+      finalized: 0,
+      stillRecording: 0,
+      notFound: 0,
+      errors: 0
+    };
+
+    const egressClient = createEgressClient();
+    const egressList = await egressClient.listEgress({});
+
+    for (const recording of recordings) {
+      const egressId = recording.egressId;
+      if (!egressId) {
+        await recording.update({ status: 'failed', notes: 'No egressId found' });
+        results.errors++;
+        continue;
+      }
+
+      const egressInfo = egressList.find(e => e.egressId === egressId);
+
+      if (!egressInfo) {
+        console.log(`⚠️ Egress ${egressId} not found on server, marking as processing`);
+        await recording.update({ status: 'processing' });
+
+        // Try to finalize anyway (maybe it just finished)
+        try {
+          await finalizeRecording(egressId);
+          results.finalized++;
+        } catch (e) {
+          results.notFound++;
+        }
+        continue;
+      }
+
+      // Check status
+      if (egressInfo.status === 3 || egressInfo.status === 4) {
+        try {
+          await finalizeRecording(egressId);
+          results.finalized++;
+        } catch (err) {
+          console.error(`❌ Failed to finalize ${egressId} during sync:`, err.message);
+          results.errors++;
+        }
+      } else {
+        results.stillRecording++;
+      }
+    }
+
+    return {
+      success: true,
+      message: `Sync completed: ${results.finalized} finalized, ${results.stillRecording} still active`,
+      results
+    };
+  } catch (error) {
+    console.error(`❌ Sync Recordings failed:`, error);
+    throw error;
+  }
+};
+
 module.exports = {
   startRecording,
   stopRecording,
   getRecordingStatus,
   listActiveRecordings,
   getRecordingUrl,
-  stopRecordingForCall
+  stopRecordingForCall,
+  syncRecordings
 };
