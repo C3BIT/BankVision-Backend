@@ -28,6 +28,10 @@ const sequelize = models.sequelize;
 
     // Safety check for missing columns (fixes "Unknown column" errors)
     await syncAllCriticalModels(sequelize);
+
+    // Self-healing: Sync stuck recordings (from previous crashes/restarts)
+    const { syncRecordings } = require("./services/recordingService.js");
+    syncRecordings().catch(err => console.error("⚠️ Initial recording sync failed:", err.message));
   } catch (error) {
     console.error("❌ Database initialization failed:", error);
   }
