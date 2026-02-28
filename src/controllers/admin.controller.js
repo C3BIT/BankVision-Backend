@@ -991,7 +991,7 @@ const downloadRecording = async (req, res) => {
 // Generate a LiveKit whisper token for silent call listening
 const generateWhisperToken = async (req, res) => {
   try {
-    const { roomName } = req.body;
+    const { roomName, mode = 'listen' } = req.body;
 
     if (!roomName) {
       return res.status(400).json({ success: false, message: 'roomName is required' });
@@ -1012,13 +1012,17 @@ const generateWhisperToken = async (req, res) => {
       ttl: '2h'
     });
 
+    // If mode is 'barge', supervisor can publish audio/video and is visible.
+    // Othewise (listen/whisper), supervisor is silent and hidden.
+    const isBarge = mode === 'barge';
+
     at.addGrant({
       roomJoin: true,
       room: roomName,
-      canPublish: false,       // Silent listener — cannot publish audio/video
-      canSubscribe: true,      // Can subscribe to all tracks
-      canPublishData: false,   // Cannot send data messages
-      hidden: true             // Hidden from participant list
+      canPublish: isBarge,       // Barge can publish, others cannot
+      canSubscribe: true,        // Open to all tracks
+      canPublishData: isBarge,   // Barge can send data messages
+      hidden: !isBarge           // Barge is visible, others are hidden
     });
 
     const token = await at.toJwt();
