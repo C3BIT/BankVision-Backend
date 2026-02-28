@@ -4589,23 +4589,29 @@ const getActiveCallsData = () => {
   });
   return Object.entries(activeCustomerCalls)
     .filter(([_, call]) => call.currentManagerEmail)
-    .map(([customerPhone, call]) => ({
-      customerPhone,
-      customerName: call.customerName || null,
-      customerEmail: call.customerEmail || null,
-      managerEmail: call.currentManagerEmail,
-      callRoom: call.callRoom,
-      startTime: call.startTime,
-      duration: Math.floor((Date.now() - call.startTime) / 1000),
-      isOnHold: call.isOnHold || false,
-      holdReason: call.holdReason || null,
-      phoneVerified: call.phoneVerified || false,
-      emailVerified: call.emailVerified || false,
-      faceVerified: call.faceVerified || false,
-      assistanceRequested: !!call.assistanceRequest,
-      supervisors: call.supervisors || [],
-      referenceNumber: call.referenceNumber || null
-    }));
+    .map(([customerPhone, call]) => {
+      const allManagers = getAllManagers();
+      const manager = allManagers.find(m => m.email === call.currentManagerEmail);
+
+      return {
+        customerPhone,
+        customerName: call.customerName || null,
+        customerEmail: call.customerEmail || null,
+        managerEmail: call.currentManagerEmail,
+        managerName: manager ? manager.name : 'Unknown Manager',
+        callRoom: call.callRoom,
+        startTime: call.startTime,
+        duration: Math.floor((Date.now() - call.startTime) / 1000),
+        isOnHold: call.isOnHold || false,
+        holdReason: call.holdReason || null,
+        phoneVerified: call.phoneVerified || false,
+        emailVerified: call.emailVerified || false,
+        faceVerified: call.faceVerified || false,
+        assistanceRequested: !!call.assistanceRequest,
+        supervisors: call.supervisors || [],
+        referenceNumber: call.referenceNumber || null
+      };
+    });
 };
 
 // Export function to get online managers for API
