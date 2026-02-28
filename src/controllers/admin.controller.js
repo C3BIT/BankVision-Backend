@@ -1029,7 +1029,7 @@ const generateWhisperToken = async (req, res) => {
         token,
         roomName,
         identity: supervisorIdentity,
-        livekitUrl: process.env.LIVEKIT_URL
+        serverUrl: process.env.LIVEKIT_URL // Changed from livekitUrl to match OpenViduMeetComponent expectation
       }
     });
   } catch (error) {
