@@ -151,13 +151,37 @@ const stopRecording = async (egressId) => {
     };
   } catch (error) {
     console.error(`❌ Failed to stop recording ${egressId}:`, error);
-    // If it's already stopped or not found on LiveKit, still update our DB
-    if (error.message?.includes('not found') || error.message?.includes('already stopping')) {
-      const recording = await Recording.findOne({ where: { egressId } });
-      if (recording && recording.status === 'recording') {
+
+    const recording = await Recording.findOne({ where: { egressId } });
+    if (recording && recording.status === 'recording') {
+      const msg = error.message || '';
+
+      if (msg.includes('EGRESS_FAILED') || msg.includes('EGRESS_ABORTED')) {
+        // Egress crashed (e.g. PulseAudio not running) — mark as failed
+        console.log(`⚠️ Egress ${egressId} already failed on LiveKit, marking DB as failed`);
+        await recording.update({
+          status: 'failed',
+          endTime: new Date(),
+          duration: Math.floor((new Date() - recording.startTime) / 1000),
+        });
+      } else if (msg.includes('not found') || msg.includes('already stopping') || msg.includes('EGRESS_COMPLETE')) {
+        // Egress finished or disappeared — mark as processing and try to finalize
+        console.log(`⚠️ Egress ${egressId} not active on LiveKit, marking DB as processing`);
         await recording.update({ status: 'processing' });
+        setTimeout(async () => {
+          try { await finalizeRecording(egressId); } catch (e) { /* logged in finalizeRecording */ }
+        }, 5000);
+      } else {
+        // Unknown error — still update DB so it doesn't stay stuck forever
+        console.log(`⚠️ Unknown stop error for ${egressId}, marking DB as failed`);
+        await recording.update({
+          status: 'failed',
+          endTime: new Date(),
+          duration: Math.floor((new Date() - recording.startTime) / 1000),
+        });
       }
     }
+
     throw error;
   }
 };
