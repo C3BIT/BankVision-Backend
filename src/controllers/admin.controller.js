@@ -992,19 +992,34 @@ const downloadRecording = async (req, res) => {
 const streamFromMinio = (req, res, storageUrl) => {
   return new Promise((resolve, reject) => {
     const http = require('http');
-    const parsedUrl = new URL(storageUrl);
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(storageUrl);
+    } catch (e) {
+      return reject(new Error(`Invalid storage URL: ${storageUrl}`));
+    }
+
+    console.log(`🔗 MinIO stream: HEAD ${parsedUrl.hostname}:${parsedUrl.port}${parsedUrl.pathname}`);
 
     const headOptions = {
       hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
+      port: parsedUrl.port || 9000,
       path: parsedUrl.pathname,
-      method: 'HEAD'
+      method: 'HEAD',
+      timeout: 10000
     };
 
     const headReq = http.request(headOptions, (headRes) => {
       const totalSize = parseInt(headRes.headers['content-length'], 10);
+      console.log(`🔗 MinIO HEAD response: status=${headRes.statusCode}, size=${totalSize}`);
+
+      if (headRes.statusCode >= 400) {
+        return reject(new Error(`MinIO returned ${headRes.statusCode} for ${parsedUrl.pathname}`));
+      }
 
       if (!totalSize || isNaN(totalSize)) {
+        // Fallback: stream without Range support
         http.get(storageUrl, (minioRes) => {
           minioRes.pipe(res);
           minioRes.on('end', resolve);
@@ -1028,7 +1043,7 @@ const streamFromMinio = (req, res, storageUrl) => {
 
         const getOptions = {
           hostname: parsedUrl.hostname,
-          port: parsedUrl.port,
+          port: parsedUrl.port || 9000,
           path: parsedUrl.pathname,
           headers: { Range: `bytes=${start}-${end}` }
         };
@@ -1048,7 +1063,14 @@ const streamFromMinio = (req, res, storageUrl) => {
       }
     });
 
-    headReq.on('error', reject);
+    headReq.on('timeout', () => {
+      headReq.destroy();
+      reject(new Error(`MinIO HEAD request timed out for ${parsedUrl.hostname}:${parsedUrl.port}`));
+    });
+    headReq.on('error', (err) => {
+      console.error(`🔗 MinIO HEAD error: ${err.message}`);
+      reject(err);
+    });
     headReq.end();
   });
 };
@@ -1110,19 +1132,24 @@ const streamRecording = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Recording file not found' });
     }
 
+    console.log(`🎥 Stream request for recording ${id}, storageUrl: ${storageUrl}, range: ${req.headers.range || 'none'}`);
+
     const filename = recording.metadata?.filename || path.basename(storageUrl);
 
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Accept-Ranges', 'bytes');
 
-    if (storageUrl.includes('minio')) {
+    // Determine if this is a full URL (MinIO/S3) or a local file path
+    const isFullUrl = storageUrl.startsWith('http://') || storageUrl.startsWith('https://');
+
+    if (isFullUrl) {
       await streamFromMinio(req, res, storageUrl);
     } else {
       streamFromLocalFile(req, res, storageUrl);
     }
   } catch (error) {
-    console.error('Stream Recording Error:', error);
+    console.error('Stream Recording Error:', error.message, error.stack);
     if (!res.headersSent) {
       res.status(500).json({ success: false, message: error.message || 'Failed to stream recording' });
     }
