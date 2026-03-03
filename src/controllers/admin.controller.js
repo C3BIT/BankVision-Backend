@@ -978,34 +978,29 @@ const downloadRecording = async (req, res) => {
       return fs.createReadStream(localPath).pipe(res);
     }
 
-    // MinIO file — proxy from internal URL
-    const minioEndpoint = process.env.MINIO_ENDPOINT;
-    const minioBucket = process.env.MINIO_BUCKET;
-    if (!minioEndpoint || !minioBucket) {
-      return res.status(500).json({ success: false, message: 'MinIO not configured' });
-    }
-
-    const http = require('http');
-    const minioInternalUrl = `${minioEndpoint}/${minioBucket}/${filePath}`;
-    console.log(`📥 Download proxy from MinIO: ${minioInternalUrl}`);
-
-    http.get(minioInternalUrl, (minioRes) => {
-      if (minioRes.statusCode !== 200) {
-        if (!res.headersSent) {
-          return res.status(404).json({ success: false, message: 'Recording file not found in storage' });
-        }
-        return;
-      }
-      if (minioRes.headers['content-length']) {
-        res.setHeader('Content-Length', minioRes.headers['content-length']);
-      }
-      minioRes.pipe(res);
-    }).on('error', (err) => {
-      console.error('MinIO download proxy error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, message: 'Error fetching from storage' });
-      }
+    // MinIO file — stream via S3 SDK (authenticated)
+    const { S3Client: S3Dl, GetObjectCommand: GetObjDl } = require('@aws-sdk/client-s3');
+    const s3 = new S3Dl({
+      endpoint: process.env.MINIO_ENDPOINT,
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: process.env.MINIO_ACCESS_KEY,
+        secretAccessKey: process.env.MINIO_SECRET_KEY,
+      },
+      forcePathStyle: true,
     });
+
+    console.log(`📥 Download from MinIO via S3 SDK: bucket=${process.env.MINIO_BUCKET}, key=${filePath}`);
+
+    const getResult = await s3.send(new GetObjDl({
+      Bucket: process.env.MINIO_BUCKET,
+      Key: filePath,
+    }));
+
+    if (getResult.ContentLength) {
+      res.setHeader('Content-Length', getResult.ContentLength);
+    }
+    getResult.Body.pipe(res);
   } catch (error) {
     console.error('Download Recording Error:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to download recording' });
@@ -1014,91 +1009,58 @@ const downloadRecording = async (req, res) => {
 
 // ==================== RECORDING STREAMING ====================
 
-// Helper: stream from MinIO with Range support
-const streamFromMinio = (req, res, storageUrl) => {
-  return new Promise((resolve, reject) => {
-    const http = require('http');
+const { S3Client, GetObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 
-    let parsedUrl;
-    try {
-      parsedUrl = new URL(storageUrl);
-    } catch (e) {
-      return reject(new Error(`Invalid storage URL: ${storageUrl}`));
-    }
+const getMinioS3Client = () => new S3Client({
+  endpoint: process.env.MINIO_ENDPOINT,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.MINIO_ACCESS_KEY,
+    secretAccessKey: process.env.MINIO_SECRET_KEY,
+  },
+  forcePathStyle: true,
+});
 
-    console.log(`🔗 MinIO stream: HEAD ${parsedUrl.hostname}:${parsedUrl.port}${parsedUrl.pathname}`);
+// Helper: stream from MinIO with Range support (authenticated via S3 SDK)
+const streamFromMinio = async (req, res, key) => {
+  const s3 = getMinioS3Client();
+  const bucket = process.env.MINIO_BUCKET;
 
-    const headOptions = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || 9000,
-      path: parsedUrl.pathname,
-      method: 'HEAD',
-      timeout: 10000
-    };
+  console.log(`🔗 MinIO S3 stream: bucket=${bucket}, key=${key}`);
 
-    const headReq = http.request(headOptions, (headRes) => {
-      const totalSize = parseInt(headRes.headers['content-length'], 10);
-      console.log(`🔗 MinIO HEAD response: status=${headRes.statusCode}, size=${totalSize}`);
+  const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  const totalSize = head.ContentLength;
 
-      if (headRes.statusCode >= 400) {
-        return reject(new Error(`MinIO returned ${headRes.statusCode} for ${parsedUrl.pathname}`));
-      }
+  const range = req.headers.range;
 
-      if (!totalSize || isNaN(totalSize)) {
-        // Fallback: stream without Range support
-        http.get(storageUrl, (minioRes) => {
-          minioRes.pipe(res);
-          minioRes.on('end', resolve);
-          minioRes.on('error', reject);
-        }).on('error', reject);
-        return;
-      }
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    const chunkSize = end - start + 1;
 
-      const range = req.headers.range;
-
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-        const chunkSize = end - start + 1;
-
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-          'Content-Length': chunkSize,
-        });
-
-        const getOptions = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port || 9000,
-          path: parsedUrl.pathname,
-          headers: { Range: `bytes=${start}-${end}` }
-        };
-
-        http.get(getOptions, (minioRes) => {
-          minioRes.pipe(res);
-          minioRes.on('end', resolve);
-          minioRes.on('error', reject);
-        }).on('error', reject);
-      } else {
-        res.setHeader('Content-Length', totalSize);
-        http.get(storageUrl, (minioRes) => {
-          minioRes.pipe(res);
-          minioRes.on('end', resolve);
-          minioRes.on('error', reject);
-        }).on('error', reject);
-      }
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+      'Content-Length': chunkSize,
     });
 
-    headReq.on('timeout', () => {
-      headReq.destroy();
-      reject(new Error(`MinIO HEAD request timed out for ${parsedUrl.hostname}:${parsedUrl.port}`));
-    });
-    headReq.on('error', (err) => {
-      console.error(`🔗 MinIO HEAD error: ${err.message}`);
-      reject(err);
-    });
-    headReq.end();
-  });
+    const get = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Range: `bytes=${start}-${end}`,
+    }));
+
+    get.Body.pipe(res);
+  } else {
+    res.setHeader('Content-Length', totalSize);
+
+    const get = await s3.send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }));
+
+    get.Body.pipe(res);
+  }
 };
 
 // Helper: stream local file with Range support
@@ -1172,8 +1134,7 @@ const streamRecording = async (req, res) => {
     res.setHeader('Accept-Ranges', 'bytes');
 
     if (!isLocalFile && minioEndpoint && minioBucket) {
-      const minioInternalUrl = `${minioEndpoint}/${minioBucket}/${filePath}`;
-      await streamFromMinio(req, res, minioInternalUrl);
+      await streamFromMinio(req, res, filePath);
     } else {
       streamFromLocalFile(req, res, filePath);
     }

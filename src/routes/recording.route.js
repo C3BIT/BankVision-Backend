@@ -246,55 +246,42 @@ router.get('/:id/download', async (req, res) => {
 
     const path = require('path');
     const fs = require('fs');
-    const http = require('http');
 
     const filename = recording.filePath || '';
 
     // Check if file is in MinIO (filePath is just a filename, not a local path)
     const isMinioFile = filename && !filename.startsWith('/uploads');
     if (isMinioFile) {
-      const minioInternalUrl = `${process.env.MINIO_ENDPOINT}/${process.env.MINIO_BUCKET}/${filename}`;
-      console.log('Streaming from MinIO:', minioInternalUrl);
+      console.log(`Downloading from MinIO via S3 SDK: bucket=${process.env.MINIO_BUCKET}, key=${filename}`);
 
-      // Set headers for download
+      const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+      const s3 = new S3Client({
+        endpoint: process.env.MINIO_ENDPOINT,
+        region: 'us-east-1',
+        credentials: {
+          accessKeyId: process.env.MINIO_ACCESS_KEY,
+          secretAccessKey: process.env.MINIO_SECRET_KEY,
+        },
+        forcePathStyle: true,
+      });
+
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Type', 'video/mp4');
 
-      // Proxy from MinIO
-      http.get(minioInternalUrl, (minioRes) => {
-        if (minioRes.statusCode !== 200) {
-          console.error('MinIO error:', minioRes.statusCode);
-          if (!res.headersSent) {
-            return res.status(404).json({ success: false, message: 'Recording file not found in storage' });
-          }
-          return;
-        }
+      const getResult = await s3.send(new GetObjectCommand({
+        Bucket: process.env.MINIO_BUCKET,
+        Key: filename,
+      }));
 
-        if (minioRes.headers['content-length']) {
-          res.setHeader('Content-Length', minioRes.headers['content-length']);
-        }
-
-        minioRes.pipe(res);
-
-        minioRes.on('end', () => {
-          console.log('MinIO stream completed:', filename);
-        });
-
-        minioRes.on('error', (err) => {
-          console.error('MinIO stream error:', err);
-        });
-      }).on('error', (err) => {
-        console.error('MinIO request error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ success: false, message: 'Error fetching from storage' });
-        }
-      });
-
+      if (getResult.ContentLength) {
+        res.setHeader('Content-Length', getResult.ContentLength);
+      }
+      getResult.Body.pipe(res);
       return;
     }
 
     // Local file path
-    let filePath = storageUrl || recording.filePath;
+    let filePath = recording.filePath;
     if (filePath.startsWith('/uploads/')) {
       filePath = path.join(__dirname, '../..', filePath.substring(1));
     } else if (!path.isAbsolute(filePath)) {
