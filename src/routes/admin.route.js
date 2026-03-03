@@ -16,6 +16,7 @@ const {
   getAdminActivityLogs,
   getSecuritySummary,
   downloadRecording,
+  streamRecording,
   generateWhisperToken,
   toggleWhisperMode,
   getWhisperMode,
@@ -39,6 +40,7 @@ router.get('/call-logs', adminAuthenticateMiddleware, getCallLogs);
 // Recording routes
 router.get('/recordings', adminAuthenticateMiddleware, getRecordings);
 router.get('/recordings/:id/download', adminAuthenticateMiddleware, downloadRecording);
+router.get('/recordings/:id/stream', adminAuthenticateMiddleware, streamRecording);
 router.get('/recordings/:id', adminAuthenticateMiddleware, getRecording);
 router.put('/recordings/:id', adminAuthenticateMiddleware, updateRecording);
 router.delete('/recordings/:id', adminAuthenticateMiddleware, deleteRecording);

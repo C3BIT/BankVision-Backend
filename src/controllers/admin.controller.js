@@ -986,6 +986,149 @@ const downloadRecording = async (req, res) => {
   }
 };
 
+// ==================== RECORDING STREAMING ====================
+
+// Helper: stream from MinIO with Range support
+const streamFromMinio = (req, res, storageUrl) => {
+  return new Promise((resolve, reject) => {
+    const http = require('http');
+    const parsedUrl = new URL(storageUrl);
+
+    const headOptions = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port,
+      path: parsedUrl.pathname,
+      method: 'HEAD'
+    };
+
+    const headReq = http.request(headOptions, (headRes) => {
+      const totalSize = parseInt(headRes.headers['content-length'], 10);
+
+      if (!totalSize || isNaN(totalSize)) {
+        http.get(storageUrl, (minioRes) => {
+          minioRes.pipe(res);
+          minioRes.on('end', resolve);
+          minioRes.on('error', reject);
+        }).on('error', reject);
+        return;
+      }
+
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+        const chunkSize = end - start + 1;
+
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+          'Content-Length': chunkSize,
+        });
+
+        const getOptions = {
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port,
+          path: parsedUrl.pathname,
+          headers: { Range: `bytes=${start}-${end}` }
+        };
+
+        http.get(getOptions, (minioRes) => {
+          minioRes.pipe(res);
+          minioRes.on('end', resolve);
+          minioRes.on('error', reject);
+        }).on('error', reject);
+      } else {
+        res.setHeader('Content-Length', totalSize);
+        http.get(storageUrl, (minioRes) => {
+          minioRes.pipe(res);
+          minioRes.on('end', resolve);
+          minioRes.on('error', reject);
+        }).on('error', reject);
+      }
+    });
+
+    headReq.on('error', reject);
+    headReq.end();
+  });
+};
+
+// Helper: stream local file with Range support
+const streamFromLocalFile = (req, res, storageUrl) => {
+  let filePath = storageUrl;
+  if (filePath.startsWith('/uploads/') || filePath.startsWith('uploads/')) {
+    filePath = path.join(__dirname, '../../', filePath);
+  } else if (!path.isAbsolute(filePath)) {
+    filePath = path.join(__dirname, '../../uploads/recordings', filePath);
+  }
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: 'Recording file not found on disk' });
+  }
+
+  const stat = fs.statSync(filePath);
+  const totalSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    const chunkSize = end - start + 1;
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+      'Content-Length': chunkSize,
+    });
+
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+  } else {
+    res.setHeader('Content-Length', totalSize);
+    fs.createReadStream(filePath).pipe(res);
+  }
+};
+
+// Stream recording for in-browser playback (supports seeking via Range requests)
+const streamRecording = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const recording = await Recording.findByPk(id);
+
+    if (!recording) {
+      return res.status(404).json({ success: false, message: 'Recording not found' });
+    }
+
+    if (recording.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Recording not available (status: ${recording.status})`
+      });
+    }
+
+    const storageUrl = recording.storageUrl || recording.filePath;
+    if (!storageUrl) {
+      return res.status(404).json({ success: false, message: 'Recording file not found' });
+    }
+
+    const filename = recording.metadata?.filename || path.basename(storageUrl);
+
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (storageUrl.includes('minio')) {
+      await streamFromMinio(req, res, storageUrl);
+    } else {
+      streamFromLocalFile(req, res, storageUrl);
+    }
+  } catch (error) {
+    console.error('Stream Recording Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message || 'Failed to stream recording' });
+    }
+  }
+};
+
 // ==================== WHISPER / SUPERVISOR MONITORING ====================
 
 // Generate a LiveKit whisper token for silent call listening
@@ -1125,6 +1268,7 @@ module.exports = {
   getAdminActivityLogs,
   getSecuritySummary,
   downloadRecording,
+  streamRecording,
   generateWhisperToken,
   toggleWhisperMode,
   getWhisperMode,

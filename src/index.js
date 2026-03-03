@@ -59,7 +59,7 @@ const corsOptions = {
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'token', 'X-Requested-With', 'Accept', 'Origin', 'X-Request-ID', 'X-Correlation-ID'],
-  exposedHeaders: ['Content-Disposition', 'Content-Length', 'Content-Type', 'X-Request-ID'],
+  exposedHeaders: ['Content-Disposition', 'Content-Length', 'Content-Type', 'Content-Range', 'Accept-Ranges', 'X-Request-ID'],
   credentials: true,
   maxAge: 86400, // 24 hours
 };
