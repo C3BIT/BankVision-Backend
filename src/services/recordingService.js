@@ -11,6 +11,7 @@ const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT;
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
 const MINIO_BUCKET = process.env.MINIO_BUCKET;
+const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || '';
 
 // Convert WSS URL to HTTPS for API calls
 const getApiUrl = () => {
@@ -286,11 +287,11 @@ const finalizeRecording = async (egressId) => {
 
       console.log(`✅ Recording finalized via container copy: ${filename}`);
     } else {
-      // File is in MinIO
+      // File is in MinIO — store backend API URL (not internal MinIO URL)
       await recording.update({
         status: 'completed',
         filePath: filename,
-        storageUrl: fileResult.location,
+        storageUrl: `${MINIO_PUBLIC_URL}/api/recording/${recording.id}/download`,
         fileSize,
         duration,
         endTime: new Date(),
@@ -343,7 +344,7 @@ const getRecordingStatus = async (egressId) => {
           const fileResult = egressInfo.fileResults[0];
           updateData.filePath = fileResult.filename;
           updateData.fileSize = fileResult.size;
-          updateData.storageUrl = fileResult.location;
+          updateData.storageUrl = `${MINIO_PUBLIC_URL}/api/recording/${recording.id}/download`;
           updateData.duration = Math.floor(fileResult.duration / 1000000000); // nanoseconds to seconds
         }
 

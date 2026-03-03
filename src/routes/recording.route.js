@@ -248,19 +248,20 @@ router.get('/:id/download', async (req, res) => {
     const fs = require('fs');
     const http = require('http');
 
-    const storageUrl = recording.storageUrl || '';
-    const filename = recording.filePath || path.basename(storageUrl);
+    const filename = recording.filePath || '';
 
-    // Check if file is in MinIO
-    if (storageUrl.includes('openvidu-minio') || storageUrl.includes('minio')) {
-      console.log('Streaming from MinIO:', storageUrl);
+    // Check if file is in MinIO (filePath is just a filename, not a local path)
+    const isMinioFile = filename && !filename.startsWith('/uploads');
+    if (isMinioFile) {
+      const minioInternalUrl = `${process.env.MINIO_ENDPOINT}/${process.env.MINIO_BUCKET}/${filename}`;
+      console.log('Streaming from MinIO:', minioInternalUrl);
 
       // Set headers for download
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Type', 'video/mp4');
 
       // Proxy from MinIO
-      http.get(storageUrl, (minioRes) => {
+      http.get(minioInternalUrl, (minioRes) => {
         if (minioRes.statusCode !== 200) {
           console.error('MinIO error:', minioRes.statusCode);
           if (!res.headersSent) {

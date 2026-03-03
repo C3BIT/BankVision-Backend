@@ -959,27 +959,53 @@ const downloadRecording = async (req, res) => {
       });
     }
 
-    const storageUrl = recording.storageUrl || recording.filePath;
-
-    if (!storageUrl) {
+    const filePath = recording.filePath || '';
+    if (!filePath) {
       return res.status(404).json({ success: false, message: 'Recording file not found' });
     }
 
-    const filename = recording.metadata?.filename || path.basename(storageUrl);
+    const filename = recording.metadata?.filename || path.basename(filePath);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'video/mp4');
 
-    // If it's a local file path (starts with /uploads/)
-    if (storageUrl.startsWith('/uploads/') || storageUrl.startsWith('uploads/')) {
-      const localPath = path.join(__dirname, '../../', storageUrl);
+    // Local file (starts with /uploads/)
+    const isLocalFile = filePath.startsWith('/uploads') || filePath.startsWith('uploads/');
+    if (isLocalFile) {
+      const localPath = path.join(__dirname, '../../', filePath);
       if (!fs.existsSync(localPath)) {
         return res.status(404).json({ success: false, message: 'Recording file not found on disk' });
       }
-      res.setHeader('Content-Type', 'video/mp4');
       return fs.createReadStream(localPath).pipe(res);
     }
 
-    // External URL (MinIO / S3) — redirect
-    return res.redirect(302, storageUrl);
+    // MinIO file — proxy from internal URL
+    const minioEndpoint = process.env.MINIO_ENDPOINT;
+    const minioBucket = process.env.MINIO_BUCKET;
+    if (!minioEndpoint || !minioBucket) {
+      return res.status(500).json({ success: false, message: 'MinIO not configured' });
+    }
+
+    const http = require('http');
+    const minioInternalUrl = `${minioEndpoint}/${minioBucket}/${filePath}`;
+    console.log(`📥 Download proxy from MinIO: ${minioInternalUrl}`);
+
+    http.get(minioInternalUrl, (minioRes) => {
+      if (minioRes.statusCode !== 200) {
+        if (!res.headersSent) {
+          return res.status(404).json({ success: false, message: 'Recording file not found in storage' });
+        }
+        return;
+      }
+      if (minioRes.headers['content-length']) {
+        res.setHeader('Content-Length', minioRes.headers['content-length']);
+      }
+      minioRes.pipe(res);
+    }).on('error', (err) => {
+      console.error('MinIO download proxy error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: 'Error fetching from storage' });
+      }
+    });
   } catch (error) {
     console.error('Download Recording Error:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to download recording' });
@@ -1127,26 +1153,29 @@ const streamRecording = async (req, res) => {
       });
     }
 
-    const storageUrl = recording.storageUrl || recording.filePath;
-    if (!storageUrl) {
+    const filePath = recording.filePath || '';
+    if (!filePath) {
       return res.status(404).json({ success: false, message: 'Recording file not found' });
     }
 
-    console.log(`🎥 Stream request for recording ${id}, storageUrl: ${storageUrl}, range: ${req.headers.range || 'none'}`);
+    const filename = recording.metadata?.filename || path.basename(filePath);
 
-    const filename = recording.metadata?.filename || path.basename(storageUrl);
+    // Determine if file is in MinIO or local storage
+    const isLocalFile = filePath.startsWith('/uploads') || filePath.startsWith('uploads/');
+    const minioEndpoint = process.env.MINIO_ENDPOINT;
+    const minioBucket = process.env.MINIO_BUCKET;
+
+    console.log(`🎥 Stream request for recording ${id}, filePath: ${filePath}, local: ${isLocalFile}, range: ${req.headers.range || 'none'}`);
 
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Accept-Ranges', 'bytes');
 
-    // Determine if this is a full URL (MinIO/S3) or a local file path
-    const isFullUrl = storageUrl.startsWith('http://') || storageUrl.startsWith('https://');
-
-    if (isFullUrl) {
-      await streamFromMinio(req, res, storageUrl);
+    if (!isLocalFile && minioEndpoint && minioBucket) {
+      const minioInternalUrl = `${minioEndpoint}/${minioBucket}/${filePath}`;
+      await streamFromMinio(req, res, minioInternalUrl);
     } else {
-      streamFromLocalFile(req, res, storageUrl);
+      streamFromLocalFile(req, res, filePath);
     }
   } catch (error) {
     console.error('Stream Recording Error:', error.message, error.stack);
