@@ -193,7 +193,7 @@ const loginAdmin = async (req, res) => {
 const getManagers = async (req, res) => {
   try {
     const managers = await Manager.findAll({
-      attributes: ['id', 'name', 'email', 'profileImage', 'createdAt'],
+      attributes: ['id', 'name', 'email', 'profileImage', 'isActive', 'lastLogin', 'failedLoginAttempts', 'lockedUntil', 'createdAt'],
       order: [['createdAt', 'DESC']]
     });
 
@@ -1268,6 +1268,200 @@ const syncRecordings = async (req, res) => {
   }
 };
 
+// Update manager active status (activate / deactivate)
+const updateManagerStatus = async (req, res) => {
+  try {
+    const { managerId } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'isActive must be a boolean' });
+    }
+
+    const manager = await Manager.findByPk(managerId);
+    if (!manager) {
+      return res.status(404).json({ success: false, message: 'Manager not found' });
+    }
+
+    const previousValue = { isActive: manager.isActive };
+    manager.isActive = isActive;
+
+    if (!isActive) {
+      manager.failedLoginAttempts = 0;
+      manager.lockedUntil = null;
+    }
+
+    await manager.save();
+
+    await logAdminActivity({
+      activityType: isActive ? 'user_activate' : 'user_deactivate',
+      adminId: req.admin.id,
+      adminEmail: req.admin.email,
+      adminName: req.admin.name,
+      adminRole: req.admin.role,
+      targetType: 'manager',
+      targetId: managerId.toString(),
+      targetEmail: manager.email,
+      description: `${isActive ? 'Activated' : 'Deactivated'} manager: ${manager.email}`,
+      previousValue,
+      newValue: { isActive },
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent']
+    });
+
+    res.json({
+      success: true,
+      message: `Manager ${isActive ? 'activated' : 'deactivated'} successfully`,
+      data: { id: manager.id, name: manager.name, email: manager.email, isActive: manager.isActive }
+    });
+  } catch (error) {
+    console.error('Update Manager Status Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to update manager status' });
+  }
+};
+
+// Delete manager (super_admin only)
+const deleteManager = async (req, res) => {
+  try {
+    const { managerId } = req.params;
+
+    const manager = await Manager.findByPk(managerId);
+    if (!manager) {
+      return res.status(404).json({ success: false, message: 'Manager not found' });
+    }
+
+    // Reject if manager has an active call
+    const activeCallsData = getActiveCallsData();
+    const activeCall = activeCallsData.find(c => c.managerEmail === manager.email);
+    if (activeCall) {
+      return res.status(409).json({ success: false, message: 'Cannot delete manager with an active call. End the call first.' });
+    }
+
+    const managerData = { id: manager.id, name: manager.name, email: manager.email };
+
+    await manager.destroy();
+
+    await logAdminActivity({
+      activityType: 'manager_delete',
+      adminId: req.admin.id,
+      adminEmail: req.admin.email,
+      adminName: req.admin.name,
+      adminRole: req.admin.role,
+      targetType: 'manager',
+      targetId: managerId.toString(),
+      targetEmail: managerData.email,
+      description: `Deleted manager: ${managerData.email}`,
+      previousValue: managerData,
+      ipAddress: getClientIP(req),
+      userAgent: req.headers['user-agent']
+    });
+
+    res.json({ success: true, message: 'Manager deleted successfully' });
+  } catch (error) {
+    console.error('Delete Manager Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to delete manager' });
+  }
+};
+
+// Agent Monitor data (enriched manager list with today's call stats)
+const getAgentMonitorData = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const managers = await Manager.findAll({
+      attributes: ['id', 'name', 'email', 'profileImage', 'isActive', 'lastLogin', 'createdAt'],
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Today's call logs for per-manager stats
+    const todayCallLogs = await CallLog.findAll({
+      where: { createdAt: { [Op.between]: [today, tomorrow] } },
+      attributes: ['managerEmail', 'duration', 'status']
+    });
+
+    const managerCallStats = {};
+    todayCallLogs.forEach(log => {
+      const email = log.managerEmail;
+      if (!managerCallStats[email]) {
+        managerCallStats[email] = { callsHandled: 0, totalDuration: 0, completedCalls: 0 };
+      }
+      managerCallStats[email].callsHandled++;
+      if (log.status === 'completed') {
+        managerCallStats[email].completedCalls++;
+        managerCallStats[email].totalDuration += (log.duration || 0);
+      }
+    });
+
+    const onlineManagersData = getOnlineManagersData();
+    const activeCallsData = getActiveCallsData();
+
+    const enrichedManagers = managers.map(mgr => {
+      const plain = mgr.get({ plain: true });
+      const liveData = onlineManagersData.find(m => m.email === plain.email) || {};
+      const activeCall = activeCallsData.find(c => c.managerEmail === plain.email) || null;
+      const callStats = managerCallStats[plain.email] || { callsHandled: 0, totalDuration: 0, completedCalls: 0 };
+
+      const avgHandleTime = callStats.completedCalls > 0
+        ? Math.round(callStats.totalDuration / callStats.completedCalls)
+        : 0;
+
+      let currentActivity = 'offline';
+      if (activeCall) {
+        currentActivity = 'in-call';
+      } else if (liveData.status) {
+        if (['break', 'lunch', 'prayer'].includes(liveData.status)) {
+          currentActivity = 'on-break';
+        } else if (liveData.status !== 'offline') {
+          currentActivity = 'idle';
+        }
+      }
+
+      return {
+        ...plain,
+        status: liveData.status || 'offline',
+        statusChangedAt: liveData.statusChangedAt || null,
+        connectedAt: liveData.connectedAt || null,
+        currentActivity,
+        activeCall: activeCall ? {
+          customerName: activeCall.customerName,
+          customerPhone: activeCall.customerPhone,
+          callRoom: activeCall.callRoom,
+          startTime: activeCall.startTime,
+          referenceNumber: activeCall.referenceNumber
+        } : null,
+        callsHandledToday: callStats.callsHandled,
+        avgHandleTime
+      };
+    });
+
+    // Summary stats
+    const statusCounts = { online: 0, busy: 0, break: 0, lunch: 0, prayer: 0, not_ready: 0, offline: 0 };
+    enrichedManagers.forEach(m => {
+      const s = m.status || 'offline';
+      if (Object.prototype.hasOwnProperty.call(statusCounts, s)) statusCounts[s]++;
+      else statusCounts.offline++;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        managers: enrichedManagers,
+        summary: {
+          total: enrichedManagers.length,
+          ...statusCounts,
+          inCall: activeCallsData.length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Agent Monitor Data Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to fetch agent monitor data' });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -1289,5 +1483,8 @@ module.exports = {
   generateWhisperToken,
   toggleWhisperMode,
   getWhisperMode,
-  syncRecordings  // Added
+  syncRecordings,
+  updateManagerStatus,
+  deleteManager,
+  getAgentMonitorData
 };

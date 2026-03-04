@@ -20,9 +20,12 @@ const {
   generateWhisperToken,
   toggleWhisperMode,
   getWhisperMode,
-  syncRecordings
+  syncRecordings,
+  updateManagerStatus,
+  deleteManager,
+  getAgentMonitorData
 } = require('../controllers/admin.controller');
-const { adminAuthenticateMiddleware, supervisorAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
+const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
 
 const router = new Router();
@@ -34,7 +37,10 @@ router.post('/login', authRateLimiter, loginAdmin);
 router.post('/register', adminAuthenticateMiddleware, registerAdmin);
 router.get('/managers', adminAuthenticateMiddleware, getManagers);
 router.get('/dashboard', adminAuthenticateMiddleware, getDashboardStats);
+router.get('/agent-monitor', adminAuthenticateMiddleware, getAgentMonitorData);
+router.put('/managers/:managerId/status', supervisorAuthMiddleware, updateManagerStatus);
 router.put('/managers/:managerId/reset-password', adminAuthenticateMiddleware, resetManagerPassword);
+router.delete('/managers/:managerId', superAdminAuthMiddleware, deleteManager);
 router.get('/call-logs', adminAuthenticateMiddleware, getCallLogs);
 
 // Recording routes

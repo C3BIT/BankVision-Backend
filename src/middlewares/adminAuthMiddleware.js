@@ -84,7 +84,51 @@ const supervisorAuthMiddleware = (req, res, next) => {
   }
 };
 
+const superAdminAuthMiddleware = (req, res, next) => {
+  try {
+    const token = getTokenFromRequest(req);
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided'
+      });
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+
+    if (decoded.type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    if (decoded.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Super admin privileges required.'
+      });
+    }
+
+    req.admin = decoded;
+    next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token'
+    });
+  }
+};
+
 module.exports = {
   adminAuthenticateMiddleware,
-  supervisorAuthMiddleware
+  supervisorAuthMiddleware,
+  superAdminAuthMiddleware
 };
