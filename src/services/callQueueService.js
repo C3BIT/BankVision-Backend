@@ -56,6 +56,7 @@ async function addCustomerToQueue(customerData) {
     socketId,
     customerName = null,
     customerEmail = null,
+    isGuest = false,
     priority = 'NORMAL',
     metadata = {}
   } = customerData;
@@ -85,6 +86,7 @@ async function addCustomerToQueue(customerData) {
         socketId,
         customerName,
         customerEmail,
+        isGuest,
         queuedAt: new Date().toISOString(),
         ...metadata
       },
@@ -278,6 +280,7 @@ async function getQueuedCustomers() {
       status: states[index],
       attempts: job.attemptsMade,
       verificationInfo: job.data.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
+      isGuest: job.data.isGuest || false,
     }));
   } catch (error) {
     console.error('❌ Failed to get queued customers:', error);

@@ -20,6 +20,7 @@ const {
 const crypto = require("crypto");
 const callLogService = require("./callLogService");
 const customerService = require("./customerService");
+const cbsMockService = require("./cbsMockService");
 const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
@@ -169,12 +170,38 @@ const handleSocketConnection = async (socket, io) => {
         }
       }
 
+      // Look up customer name from CBS/DB if not already known
+      let resolvedName = name || null;
+      let resolvedEmail = socket.user.customerEmail || null;
+      let isGuest = true;
+      if (customerAccounts && customerAccounts.length > 0) {
+        isGuest = false;
+        if (!resolvedName) {
+          try {
+            const lookup = await cbsMockService.lookupCustomerByPhone(phone);
+            if (lookup && lookup.found) {
+              resolvedName = lookup.name || null;
+              if (!resolvedEmail && lookup.email) {
+                resolvedEmail = lookup.email;
+              }
+            }
+          } catch (err) {
+            console.log(`ℹ️ Customer name lookup failed (non-blocking):`, err.message);
+          }
+        }
+      }
+      // If still no name, mark as Guest
+      if (!resolvedName) {
+        resolvedName = 'Guest';
+      }
+
       // SIMPLIFIED: All calls go to BullMQ queue - managers pick manually from dashboard
       const result = await addCustomerToQueue({
         customerPhone: phone,
         socketId: socketId,
-        customerName: name || null,
-        customerEmail: socket.user.customerEmail || null,
+        customerName: resolvedName,
+        customerEmail: resolvedEmail,
+        isGuest: isGuest,
         priority: 'NORMAL',
         verificationInfo: verificationInfo ? {
           method: verificationInfo.method,
