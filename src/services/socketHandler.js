@@ -916,33 +916,23 @@ const handleSocketConnection = async (socket, io) => {
         currentManagerEmail: activeCustomerCalls[customerPhone].currentManagerEmail
       });
 
-      try {
-        // Clear any previous requests first
-        clearCustomerRequests(customerSocketId);
+      // OTP was already sent via REST API by the manager panel (sendOtpToCustomer action).
+      // Do NOT send OTP again here — it would overwrite the cached OTP with a new code,
+      // causing the customer's first SMS code to become invalid.
+      // Just emit the event to the customer immediately so the OTP modal opens.
+      console.log(`📤 Emitting "requested:phone-verification" to socket ${customerSocketId}`);
+      io.to(customerSocketId).emit(
+        "requested:phone-verification",
+        {
+          message: "Manager has requested phone verification",
+          managerId: email,
+          managerName: name || null,
+        }
+      );
 
-        // Send SMS OTP to customer
-        await OTP.sendtPhoneOtp(customerPhone);
-
-        // Emit to customer socket
-        console.log(`📤 Emitting "requested:phone-verification" to socket ${customerSocketId}`);
-        io.to(customerSocketId).emit(
-          "requested:phone-verification",
-          {
-            message: "Manager has requested phone verification",
-            managerId: email,
-            managerName: name || null,
-          }
-        );
-
-        console.log(
-          `📱 OTP request sent to customer ${customerPhone} at socket ${customerSocketId}`
-        );
-      } catch (error) {
-        console.error(
-          `❌ Error sending OTP to ${customerPhone}: ${error.message}`
-        );
-        socket.emit("error", { message: "Failed to send verification code" });
-      }
+      console.log(
+        `📱 Phone verification request sent to customer ${customerPhone} at socket ${customerSocketId}`
+      );
     });
 
     socket.on("customer:phone-verified", async (data) => {
@@ -1010,14 +1000,14 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
-      try {
-        // Clear any previous requests first
-        clearCustomerRequests(activeCustomerCalls[customerPhone].customerSocketId);
+      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
 
+      try {
         // Send email OTP to customer
         await OTP.sendOTP(customerEmail);
 
-        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
+        // Emit to customer AFTER OTP is sent (email OTP is only sent here, not via REST API)
+        io.to(customerSocketId).emit(
           "requested:email-verification",
           {
             message: "Manager has requested email verification",

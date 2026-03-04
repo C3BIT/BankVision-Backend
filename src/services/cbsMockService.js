@@ -376,6 +376,20 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
     const otp = generateOtp();
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
 
+    // If requesting OTP for a new phone, check if it's already registered
+    if (destination === "new_phone" && newValue) {
+      const existingAccounts = getMockAccountsByPhone(newValue);
+      const isAlreadyRegistered = existingAccounts.some(
+        acc => acc.accountNumber !== accountNumber
+      );
+      if (isAlreadyRegistered) {
+        return {
+          success: false,
+          message: "This phone number is already registered to another account"
+        };
+      }
+    }
+
     // Determine where to send OTP
     let sendTo;
 
@@ -489,6 +503,19 @@ const verifyOtp = async (requestId, otp) => {
  * Simulates: POST /cbs/api/v1/customer/phone/update
  */
 const updatePhone = async (accountNumber, requestId, otp, newPhone) => {
+  // Check if the new phone number is already registered to another account
+  const existingAccounts = getMockAccountsByPhone(newPhone);
+  const isAlreadyRegistered = existingAccounts.some(
+    acc => acc.accountNumber !== accountNumber
+  );
+  if (isAlreadyRegistered) {
+    return {
+      success: false,
+      verified: false,
+      message: "This phone number is already registered to another account"
+    };
+  }
+
   const verification = await verifyOtp(requestId, otp);
 
   if (!verification.verified) {
