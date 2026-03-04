@@ -97,14 +97,22 @@ const handleSocketConnection = async (socket, io) => {
         }
       } else if (role === "manager" && email) {
         // Find if this manager has any active calls and update their socketId
+        let hasActiveCall = false;
         Object.keys(activeCustomerCalls).forEach(custPhone => {
           if (activeCustomerCalls[custPhone].currentManagerEmail === email) {
             console.log(`♻️ Manager ${email} reconnected - updating active call with ${custPhone} to socketId: ${socketId}`);
             activeCustomerCalls[custPhone].managerSocketId = socketId;
             // Restore customerPhone on the new socket so manager operations work
             socket.user.customerPhone = custPhone;
+            hasActiveCall = true;
           }
         });
+
+        // If no active call, reset status to online (Redis may still have "busy" from a previous call)
+        if (!hasActiveCall) {
+          updateUserStatus(email, "manager", AGENT_STATUS.ONLINE);
+          console.log(`🟢 Manager ${email} reconnected with no active call — status reset to online`);
+        }
       }
     }
 
