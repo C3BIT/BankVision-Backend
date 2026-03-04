@@ -55,7 +55,7 @@ const Manager = sequelize.define(
     },
     isActive: {
       type: DataTypes.BOOLEAN,
-      defaultValue: true
+      defaultValue: false
     },
     lastLogin: {
       type: DataTypes.DATE,

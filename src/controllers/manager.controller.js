@@ -117,14 +117,12 @@ const loginManagerController = async (req, res) => {
       });
     }
 
-    // Check if account is active
+    // Check if account is active (new accounts require admin approval)
     if (manager.isActive === false) {
-      // Log the real reason internally
-      logLoginFailed(req, email, 'Account deactivated');
-      // Generic error message - don't reveal account status
-      throw Object.assign(new Error("Invalid email or password"), {
-        status: statusCodes.UNAUTHORIZED,
-        error: { code: 40101 },
+      logLoginFailed(req, email, 'Account not yet approved');
+      throw Object.assign(new Error("Your account is pending admin approval. Please contact your administrator."), {
+        status: statusCodes.FORBIDDEN,
+        error: { code: 40301 },
       });
     }
 
