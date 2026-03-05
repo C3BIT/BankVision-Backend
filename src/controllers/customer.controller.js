@@ -74,7 +74,7 @@ const checkDuplicateEmailController = async (req, res) => {
     }
     const { checkEmailExists } = require("../services/customerService");
     const existingAccounts = await checkEmailExists(email);
-    res.success({ data: existingAccounts }, "Account List by Email Fetched Successfully");
+    res.success(existingAccounts, "Account List by Email Fetched Successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
