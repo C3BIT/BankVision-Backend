@@ -150,6 +150,19 @@ const checkVerificationStatus = async (phone) => {
   };
 };
 
+/**
+ * Check if email exists
+ * @param {string} email - Customer's email
+ * @returns {Array} - Accounts with that email
+ */
+const checkEmailExists = async (email) => {
+  console.log(`🔍 Checking if email exists: ${email}`);
+
+  const accounts = await cbsMockService.checkEmailExists(email);
+
+  return accounts;
+};
+
 module.exports = {
   createCustomer,
   getAccountsListByPhone,
@@ -159,4 +172,5 @@ module.exports = {
   getCustomerInfoByAccountNumber,
   getCustomerImageByPhone,
   checkVerificationStatus,
+  checkEmailExists
 };

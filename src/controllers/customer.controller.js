@@ -63,6 +63,23 @@ const getAccountsListByPhoneController = async (req, res) => {
   }
 };
 
+const checkDuplicateEmailController = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      throw Object.assign(new Error(), {
+        status: statusCodes.BAD_REQUEST,
+        error: { code: 40010 },
+      });
+    }
+    const { checkEmailExists } = require("../services/customerService");
+    const existingAccounts = await checkEmailExists(email);
+    res.success({ data: existingAccounts }, "Account List by Email Fetched Successfully");
+  } catch (error) {
+    errorResponseHandler(error, req, res);
+  }
+};
+
 const handleUpdatePhoneByAccountNumber = async (req, res) => {
   try {
     const { accountNumber, phone } = req.body;
@@ -198,4 +215,5 @@ module.exports = {
   handleGetCustomerInfoByAccountNb,
   getCustomerImageByPhoneController,
   checkVerificationStatusController,
+  checkDuplicateEmailController
 };

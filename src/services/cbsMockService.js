@@ -792,6 +792,51 @@ const getLoansByPhone = async (phone) => {
   }
 };
 
+/**
+ * Check if an email already exists in CBS
+ * Simulates: GET /cbs/api/v1/customer/check-email?email=XXX
+ */
+const checkEmailExists = async (email) => {
+  try {
+    console.log(`[CBS Mock] Checking if email exists: ${email}`);
+
+    const lowercaseEmail = email.toLowerCase().trim();
+
+    // Search in original mock data
+    for (const phone in MOCK_CBS_CUSTOMERS) {
+      const accounts = MOCK_CBS_CUSTOMERS[phone];
+      const found = accounts.some(acc => acc.email && acc.email.toLowerCase() === lowercaseEmail);
+      if (found) {
+        // Find basic account details to return
+        const customer = accounts.find(acc => acc.email && acc.email.toLowerCase() === lowercaseEmail);
+        return [{
+          accountNumber: customer.accountNumber,
+          branch: customer.branch,
+          accountStatus: customer.accountStatus || "active",
+          email: customer.email
+        }];
+      }
+    }
+
+    // Check updated records
+    for (const [accNum, data] of mockDataUpdates.entries()) {
+      if (data.email && data.email.toLowerCase() === lowercaseEmail) {
+        return [{
+          accountNumber: data.accountNumber,
+          branch: data.branch,
+          accountStatus: data.accountStatus || "active",
+          email: data.email
+        }];
+      }
+    }
+
+    return [];
+  } catch (error) {
+    console.error("CBS Check Email Error:", error);
+    throw new Error("CBS service unavailable");
+  }
+};
+
 module.exports = {
   REQUEST_TYPES,
   MOCK_CBS_CUSTOMERS, // Exported for reference/debugging
@@ -800,6 +845,7 @@ module.exports = {
   getAccountsWithDetails,
   getCardsByPhone,
   getLoansByPhone,
+  checkEmailExists,
   getCustomerByAccountNumber,
   requestOtp,
   verifyOtp,
