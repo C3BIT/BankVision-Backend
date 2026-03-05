@@ -3,7 +3,7 @@ const OTP = require("../services/otpService");
 const { statusCodes } = require("../utils/statusCodes");
 const sendOtpController = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, checkDuplicate } = req.body;
 
     if (!email) {
       throw Object.assign(new Error("Email Address is required"), {
@@ -11,7 +11,22 @@ const sendOtpController = async (req, res) => {
         error: { code: 40010 },
       });
     }
-    
+
+    // When used for email change, check if email is already registered
+    if (checkDuplicate) {
+      const { checkEmailExists } = require("../services/customerService");
+      const existingAccounts = await checkEmailExists(email);
+      if (existingAccounts && existingAccounts.length > 0) {
+        throw Object.assign(
+          new Error("This email is already registered to another account"),
+          {
+            status: statusCodes.BAD_REQUEST,
+            error: { code: 40015 },
+          }
+        );
+      }
+    }
+
     try {
       await OTP.sendOTP(email);
       return res.success({ email }, "OTP sent successfully.");
@@ -91,7 +106,7 @@ const verifyPhoneOtpController = async (req, res) => {
 const verifyEmailController = async (req, res) => {
   try {
     const { email, otp, phone } = req.body;
-    
+
     // Support both email and phone-based email verification
     let emailToVerify = email;
     if (!emailToVerify && phone) {
@@ -138,7 +153,7 @@ const verifyEmailController = async (req, res) => {
 const sendExternalPhoneOtpController = async (req, res) => {
   try {
     const { phone, externalPhone } = req.body;
-    
+
     if (!phone) {
       throw Object.assign(new Error("Customer phone number is required"), {
         status: statusCodes.BAD_REQUEST,
@@ -166,7 +181,7 @@ const sendExternalPhoneOtpController = async (req, res) => {
 const verifyExternalPhoneOtpController = async (req, res) => {
   try {
     const { phone, externalPhone, otp } = req.body;
-    
+
     if (!phone) {
       throw Object.assign(new Error("Customer phone number is required"), {
         status: statusCodes.BAD_REQUEST,
@@ -189,7 +204,7 @@ const verifyExternalPhoneOtpController = async (req, res) => {
     }
 
     const isVerified = await OTP.verifyExternalPhoneOtp(phone, externalPhone, otp);
-    
+
     if (!isVerified) {
       throw Object.assign(new Error("Invalid or expired OTP"), {
         status: statusCodes.BAD_REQUEST,
