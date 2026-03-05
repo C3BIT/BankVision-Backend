@@ -3832,6 +3832,96 @@ const handleSocketConnection = async (socket, io) => {
     });
     // ============ END CHAT EVENTS ============
 
+    // ============ WHITEBOARD EVENTS ============
+    // Bidirectional relay: stroke, clear, undo, toggle
+
+    socket.on("whiteboard:stroke", (data) => {
+      if (role === "manager") {
+        const customerPhone = normalizePhone(socket.user.customerPhone);
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:stroke", {
+          ...data,
+          senderId: email,
+          senderRole: "manager",
+        });
+      } else if (role === "customer") {
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
+        if (!activeCall || !activeCall.managerSocketId) return;
+        io.to(activeCall.managerSocketId).emit("whiteboard:stroke", {
+          ...data,
+          senderId: phone,
+          senderRole: "customer",
+        });
+      }
+    });
+
+    socket.on("whiteboard:clear", (data) => {
+      if (role === "manager") {
+        const customerPhone = normalizePhone(socket.user.customerPhone);
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:clear", {
+          senderId: email,
+          senderRole: "manager",
+          timestamp: Date.now(),
+        });
+      } else if (role === "customer") {
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
+        if (!activeCall || !activeCall.managerSocketId) return;
+        io.to(activeCall.managerSocketId).emit("whiteboard:clear", {
+          senderId: phone,
+          senderRole: "customer",
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    socket.on("whiteboard:undo", (data) => {
+      if (role === "manager") {
+        const customerPhone = normalizePhone(socket.user.customerPhone);
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:undo", {
+          senderId: email,
+          senderRole: "manager",
+          timestamp: Date.now(),
+        });
+      } else if (role === "customer") {
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
+        if (!activeCall || !activeCall.managerSocketId) return;
+        io.to(activeCall.managerSocketId).emit("whiteboard:undo", {
+          senderId: phone,
+          senderRole: "customer",
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    socket.on("whiteboard:toggle", (data) => {
+      const { open } = data;
+      if (role === "manager") {
+        const customerPhone = normalizePhone(socket.user.customerPhone);
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:toggle", {
+          open,
+          senderId: email,
+          senderRole: "manager",
+        });
+      } else if (role === "customer") {
+        const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
+        if (!activeCall || !activeCall.managerSocketId) return;
+        io.to(activeCall.managerSocketId).emit("whiteboard:toggle", {
+          open,
+          senderId: phone,
+          senderRole: "customer",
+        });
+      }
+    });
+
+    // ============ END WHITEBOARD EVENTS ============
+
     // ============ CHANGE REQUEST EVENTS ============
     // Manager approves change request (phone/email)
     socket.on("manager:approve-change", async (data) => {
