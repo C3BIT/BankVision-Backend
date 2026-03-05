@@ -438,11 +438,9 @@ const handleSocketConnection = async (socket, io) => {
         });
         console.log(`📊 Emitted stats:update event for customer ${phone} ending call`);
 
-        // Broadcast updated queue to all managers (no automatic routing in queue-only design)
-        if (managerEmail && managerSocket) {
-          console.log(`🔍 Manager ${managerEmail} is now available after customer ended call - refreshing queue`);
-          await broadcastQueueAndStatus(io);
-        }
+        // Broadcast updated queue and status to all clients (including admin panel)
+        console.log(`🔍 Broadcasting updated status after customer ${phone} ended call`);
+        await broadcastQueueAndStatus(io);
       } else if (role === "manager") {
         const customerPhone = socket.user.customerPhone;
         if (customerPhone && activeCustomerCalls[customerPhone]) {
@@ -741,7 +739,7 @@ const handleSocketConnection = async (socket, io) => {
       const allManagers = getAllManagers();
       const currentManager = allManagers.find(m => m.email === email);
       const previousStatus = currentManager?.status || AGENT_STATUS.ONLINE;
-      activeCustomerCalls[customerPhone].managerPreviousStatus = previousStatus;
+      activeCustomerCalls[normalizedPhone].managerPreviousStatus = previousStatus;
 
       // Create call log entry
       try {
