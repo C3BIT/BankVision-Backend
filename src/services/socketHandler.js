@@ -1491,10 +1491,12 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
+      const newPhone = normalizePhone(rawPhone);
+      console.log(`📱 Relaying phone-change OTP sent to customer ${customerPhone}, new phone: ${newPhone}`);
       io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
         "customer:phone-change-otp-sent",
         {
-          phone: phone,
+          phone: newPhone,
           accountNumber: accountNumber,
           timestamp: timestamp,
         }

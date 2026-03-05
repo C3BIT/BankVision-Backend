@@ -30,13 +30,29 @@ const sendOtpController = async (req, res) => {
 
 const sendPhoneOtpController = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, checkDuplicate } = req.body;
     if (!phone) {
       throw Object.assign(new Error("Phone number is required"), {
         status: statusCodes.BAD_REQUEST,
         error: { code: 40012 },
       });
     }
+
+    // When used for phone change, check if number is already registered
+    if (checkDuplicate) {
+      const { getAccountsListByPhone } = require("../services/customerService");
+      const existingAccounts = await getAccountsListByPhone(phone);
+      if (existingAccounts && existingAccounts.length > 0) {
+        throw Object.assign(
+          new Error("This phone number is already registered to another account"),
+          {
+            status: statusCodes.BAD_REQUEST,
+            error: { code: 40015 },
+          }
+        );
+      }
+    }
+
     await OTP.sendtPhoneOtp(phone);
     return res.success({ phone }, "OTP sent successfully.");
   } catch (error) {
