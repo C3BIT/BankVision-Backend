@@ -104,7 +104,7 @@ const MOCK_CBS_CUSTOMERS = {
     {
       accountNumber: "2001300400501",
       mobileNumber: "01886009771",
-      email: "iftekhar.ucchash@gmail.com",
+      email: "ucchash.education@gmail.com",
       name: "Iftekhar Ucchash Ahmed",
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
@@ -118,7 +118,7 @@ const MOCK_CBS_CUSTOMERS = {
     {
       accountNumber: "2001300400502",
       mobileNumber: "01886009771",
-      email: "iftekhar.ucchash@gmail.com",
+      email: "ucchash.education@gmail.com",
       name: "Iftekhar Ucchash Ahmed",
       address: "House 12, Road 8, Mirpur DOHS, Dhaka 1216",
       branch: "Mirpur DOHS Branch",
