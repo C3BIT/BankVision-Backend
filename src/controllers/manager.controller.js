@@ -194,6 +194,7 @@ const loginManagerController = async (req, res) => {
     const payload = {
       id: manager.id,
       email: manager.email,
+      name: manager.name,
       role: "manager"
     };
 
