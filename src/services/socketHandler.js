@@ -895,18 +895,45 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
-      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+      let customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
 
-      // Notify customer to open OTP modal
-      io.to(customerSocketId).emit("requested:phone-verification", {
-        message: "Manager has requested phone verification",
-        managerId: email,
-        managerName: name || null,
-        phone: customerPhone
-      });
+      // Validate stored socket is still active; if stale, search by phone
+      if (!customerSocketId || !io.sockets.sockets.get(customerSocketId)) {
+        console.log(`⚠️ Stored customer socket ${customerSocketId} is stale, searching for active socket by phone ${customerPhone}`);
+        for (const [, s] of io.sockets.sockets) {
+          if (s.user && normalizePhone(s.user.phone) === customerPhone) {
+            customerSocketId = s.id;
+            activeCustomerCalls[customerPhone].customerSocketId = customerSocketId;
+            console.log(`✅ Found active customer socket: ${customerSocketId}`);
+            break;
+          }
+        }
+      }
 
-      // Also notify manager that it's sent (for UI sync)
-      socket.emit("verification:initiated", { type: 'phone', phone: customerPhone });
+      if (!customerSocketId) {
+        console.error(`❌ No active socket found for customer ${customerPhone}`);
+        return socket.emit("error", { message: "Customer is not connected." });
+      }
+
+      try {
+        // Send phone OTP
+        await OTP.sendtPhoneOtp(customerPhone);
+
+        // Notify customer to open OTP modal
+        io.to(customerSocketId).emit("requested:phone-verification", {
+          message: "Manager has requested phone verification",
+          managerId: email,
+          managerName: name || null,
+          phone: customerPhone
+        });
+
+        // Also notify manager that it's sent (for UI sync)
+        socket.emit("verification:initiated", { type: 'phone', phone: customerPhone });
+        console.log(`📱 Phone OTP sent and customer ${customerPhone} notified via socket ${customerSocketId}`);
+      } catch (error) {
+        console.error("❌ Error sending phone verification OTP:", error);
+        socket.emit("error", { message: "Failed to send OTP to customer." });
+      }
     });
 
     socket.on("customer:phone-verified", async (data) => {
@@ -953,7 +980,19 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:email-verification", async (data) => {
       if (role !== "manager") return;
 
-      const customerPhone = normalizePhone(socket.user.customerPhone);
+      let rawCustomerPhone = socket.user.customerPhone || data.customerPhone;
+
+      if (!rawCustomerPhone) {
+        const activeCallKey = Object.keys(activeCustomerCalls).find(
+          key => activeCustomerCalls[key].currentManagerEmail === email
+        );
+        if (activeCallKey) {
+          rawCustomerPhone = activeCallKey;
+          socket.user.customerPhone = activeCallKey;
+        }
+      }
+
+      const customerPhone = normalizePhone(rawCustomerPhone);
       const customerEmail = data.customerEmail;
 
       console.log(
@@ -974,31 +1013,48 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
-      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+      let customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+
+      // Validate stored socket is still active; if stale, search by phone
+      if (!customerSocketId || !io.sockets.sockets.get(customerSocketId)) {
+        console.log(`⚠️ Stored customer socket ${customerSocketId} is stale, searching for active socket by phone ${customerPhone}`);
+        for (const [, s] of io.sockets.sockets) {
+          if (s.user && normalizePhone(s.user.phone) === customerPhone) {
+            customerSocketId = s.id;
+            activeCustomerCalls[customerPhone].customerSocketId = customerSocketId;
+            console.log(`✅ Found active customer socket: ${customerSocketId}`);
+            break;
+          }
+        }
+      }
+
+      if (!customerSocketId) {
+        console.error(`❌ No active socket found for customer ${customerPhone}`);
+        return socket.emit("error", { message: "Customer is not connected." });
+      }
 
       try {
-        // Send email OTP to customer
+        // Send email OTP
         await OTP.sendOTP(customerEmail);
 
-        // Emit to customer AFTER OTP is sent (email OTP is only sent here, not via REST API)
-        io.to(customerSocketId).emit(
-          "requested:email-verification",
-          {
-            message: "Manager has requested email verification",
-            managerId: email,
-            managerName: name || null,
-            customerEmail: customerEmail,
-          }
-        );
+        // Notify customer (modal trigger)
+        io.to(customerSocketId).emit("requested:email-verification", {
+          message: "Manager has requested email verification",
+          managerId: email,
+          managerName: name || null,
+          email: customerEmail,
+          customerEmail: customerEmail // Send both for compatibility
+        });
+
+        // Notify manager (sync)
+        socket.emit("verification:initiated", { type: 'email', email: customerEmail });
 
         console.log(
           `📧 Verification email sent to ${customerEmail} for customer ${customerPhone}`
         );
       } catch (error) {
-        console.error(
-          `❌ Error sending email verification to ${customerEmail}: ${error.message}`
-        );
-        socket.emit("error", { message: "Failed to send email verification" });
+        console.error(`❌ Error sending email verification to ${customerEmail}: ${error.message}`);
+        socket.emit("error", { message: "Failed to send email OTP to customer." });
       }
     });
 
@@ -1533,35 +1589,6 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`📧 Email change request sent to customer ${customerPhone}`);
     });
 
-    socket.on("manager:request-email-verification", (data) => {
-      if (role !== "manager") return;
-
-      const { customerEmail } = data;
-      const customerPhone = normalizePhone(socket.user.customerPhone);
-      console.log(`📧 Manager ${email} requesting email verification for customer ${customerPhone}, email: ${customerEmail}`);
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
-          message: "No active call with customer",
-        });
-      }
-
-      // Clear any previous requests first
-      clearCustomerRequests(activeCustomerCalls[customerPhone].customerSocketId);
-
-      // Notify customer to open OTP modal
-      const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
-      io.to(customerSocketId).emit("requested:email-verification", {
-        message: "Manager has requested email verification",
-        managerId: email,
-        managerName: name || null,
-        email: customerEmail
-      });
-
-      // Also notify manager that it's sent (for UI sync)
-      socket.emit("verification:initiated", { type: 'email', email: customerEmail });
-    });
 
     // Customer typing email - NEW field
     socket.on("typing:email-new", (data) => {
@@ -2335,7 +2362,9 @@ const handleSocketConnection = async (socket, io) => {
 
       try {
         if (type === 'phone') {
-          await OTP.sendtPhoneOtp(target);
+          // Normalize the target phone number for the OTP service
+          const normalizedTarget = normalizePhone(target);
+          await OTP.sendtPhoneOtp(normalizedTarget);
         } else if (type === 'email') {
           await OTP.sendOTP(target);
         }
