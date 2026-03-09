@@ -170,24 +170,22 @@ const handleSocketConnection = async (socket, io) => {
         }
       }
 
-      // Look up customer name from CBS/DB if not already known
+      // Look up customer name/email from CBS/DB if not already known
       let resolvedName = name || null;
       let resolvedEmail = socket.user.customerEmail || null;
       let isGuest = true;
       if (customerAccounts && customerAccounts.length > 0) {
         isGuest = false;
-        if (!resolvedName) {
-          try {
-            const lookup = await cbsMockService.lookupCustomerByPhone(phone);
-            if (lookup && lookup.found) {
-              resolvedName = lookup.name || null;
-              if (!resolvedEmail && lookup.email) {
-                resolvedEmail = lookup.email;
-              }
-            }
-          } catch (err) {
-            console.log(`ℹ️ Customer name lookup failed (non-blocking):`, err.message);
+      }
+      if (!resolvedName || !resolvedEmail) {
+        try {
+          const lookup = await cbsMockService.lookupCustomerByPhone(phone);
+          if (lookup && lookup.found) {
+            if (!resolvedName) resolvedName = lookup.name || null;
+            if (!resolvedEmail && lookup.email) resolvedEmail = lookup.email;
           }
+        } catch (err) {
+          console.log(`ℹ️ Customer CBS lookup failed (non-blocking):`, err.message);
         }
       }
       // If still no name, mark as Guest
