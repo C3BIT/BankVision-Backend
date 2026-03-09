@@ -1,5 +1,6 @@
 const { CallLog } = require("../models/CallLog");
 const { CustomerFeedback } = require("../models/CustomerFeedback");
+const { Manager } = require("../models/Manager");
 const { Op } = require("sequelize");
 const { generateReferenceNumber, sendPostCallSummaryEmail, sendCallReferenceEmail } = require("./emailService");
 
@@ -241,8 +242,32 @@ const getCallLogs = async (filters = {}, pagination = {}) => {
       offset,
     });
 
+    // Enrich records where managerName is null by looking up Manager table
+    const nullNameEmails = [...new Set(
+      rows
+        .filter(r => !r.managerName && r.managerEmail)
+        .map(r => r.managerEmail)
+    )];
+
+    let managerNameMap = {};
+    if (nullNameEmails.length > 0) {
+      const managers = await Manager.findAll({
+        where: { email: nullNameEmails },
+        attributes: ["email", "name"],
+      });
+      managers.forEach(m => { managerNameMap[m.email] = m.name; });
+    }
+
+    const callLogs = rows.map(r => {
+      const plain = r.toJSON();
+      if (!plain.managerName && plain.managerEmail && managerNameMap[plain.managerEmail]) {
+        plain.managerName = managerNameMap[plain.managerEmail];
+      }
+      return plain;
+    });
+
     return {
-      callLogs: rows,
+      callLogs,
       pagination: {
         total: count,
         page,
