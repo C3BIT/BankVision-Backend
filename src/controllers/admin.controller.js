@@ -535,10 +535,34 @@ const getCallLogs = async (req, res) => {
       offset: parseInt(offset)
     });
 
+    // Enrich records where managerName is null by looking up Manager table
+    const nullNameEmails = [...new Set(
+      rows
+        .filter(r => !r.managerName && r.managerEmail)
+        .map(r => r.managerEmail)
+    )];
+
+    let managerNameMap = {};
+    if (nullNameEmails.length > 0) {
+      const managers = await Manager.findAll({
+        where: { email: nullNameEmails },
+        attributes: ['email', 'name'],
+      });
+      managers.forEach(m => { managerNameMap[m.email] = m.name; });
+    }
+
+    const calls = rows.map(r => {
+      const plain = r.toJSON();
+      if (!plain.managerName && plain.managerEmail && managerNameMap[plain.managerEmail]) {
+        plain.managerName = managerNameMap[plain.managerEmail];
+      }
+      return plain;
+    });
+
     res.json({
       success: true,
       data: {
-        calls: rows,
+        calls,
         pagination: {
           total: count,
           page: parseInt(page),
@@ -555,6 +579,7 @@ const getCallLogs = async (req, res) => {
     });
   }
 };
+
 
 // Get recordings with filters
 const getRecordings = async (req, res) => {
