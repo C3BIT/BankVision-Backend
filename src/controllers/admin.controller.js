@@ -353,18 +353,13 @@ const getDashboardStats = async (req, res) => {
       // Queue service may not be reachable; default to 0
     }
 
-    // --- NEW: Identity match success rate (face verifications today) ---
-    const faceVerificationsToday = await VerificationLog.findAll({
-      where: {
-        verificationType: 'face',
-        requestedAt: { [Op.between]: [today, tomorrow] }
-      },
-      attributes: ['status']
-    });
-    const faceTotal = faceVerificationsToday.length;
-    const faceVerified = faceVerificationsToday.filter(v => v.status === 'verified').length;
+    // Identity match success rate — use CallLog.faceVerified from completed calls today
+    // (VerificationLog is not written for face comparisons; CallLog.faceVerified is the source of truth)
+    const completedCallsToday = todayCalls.filter(c => c.status === 'completed');
+    const faceTotal = completedCallsToday.length;
+    const faceVerifiedCount = completedCallsToday.filter(c => c.faceVerified === true).length;
     const identityMatchSuccessRate = faceTotal > 0
-      ? parseFloat((faceVerified / faceTotal * 100).toFixed(1))
+      ? parseFloat((faceVerifiedCount / faceTotal * 100).toFixed(1))
       : null;
 
     // --- NEW: OTP failure rate today (otp type) ---
