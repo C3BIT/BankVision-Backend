@@ -13,8 +13,24 @@
  * In production, replace with actual CBS API calls.
  */
 
-const crypto = require("crypto");
-const { MINIO_PUBLIC_URL: PUBLIC_URL_VAR, PLACEHOLD_JP_URL } = require("../configs/variables");
+const {
+  MINIO_PUBLIC_URL: PUBLIC_URL_VAR,
+  PLACEHOLD_JP_URL,
+  CBS_API_KEY,
+  CBS_API_URL
+} = require("../configs/variables");
+
+/**
+ * PRODUCTION INTEGRATION NOTE:
+ * In a live environment, every request to the bank's CBS API would require
+ * authentication. The CBS_API_KEY from our configuration should be included
+ * in the request headers (e.g., 'X-API-Key' or 'Authorization').
+ * 
+ * Example:
+ * const response = await axios.post(`${CBS_API_URL}/phone/update`, data, {
+ *   headers: { 'Authorization': `Bearer ${CBS_API_KEY}` }
+ * });
+ */
 
 // ============================================================
 // MOCK CBS DATABASE - Simulates bank's customer data
@@ -446,6 +462,14 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
  * Simulates: POST /cbs/api/v1/otp/verify
  */
 const verifyOtp = async (requestId, otp) => {
+  // Bypass for backend-initiated updates
+  if (requestId === "MOCK_BACKEND_APPROVAL") {
+    return {
+      verified: true,
+      message: "OTP verified via backend approval"
+    };
+  }
+
   const request = pendingRequests.get(requestId);
 
   if (!request) {

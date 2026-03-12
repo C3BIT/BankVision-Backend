@@ -52,4 +52,8 @@ module.exports = {
   REDIS_HOST: process.env.REDIS_HOST || "vbrm-redis",
   REDIS_PORT: process.env.REDIS_PORT || 6379,
   REDIS_PASSWORD: process.env.REDIS_PASSWORD,
+
+  // CBS API (Production)
+  CBS_API_KEY: process.env.CBS_API_KEY || "your_production_api_key_here",
+  CBS_API_URL: process.env.CBS_API_URL || "https://api.yourbank.com/v1",
 };

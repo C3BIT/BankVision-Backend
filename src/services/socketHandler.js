@@ -716,6 +716,18 @@ const handleSocketConnection = async (socket, io) => {
 
       // Store active call with verification info
       const normalizedPhone = normalizePhone(customerPhone);
+
+      // Get account number from CBS if possible
+      let accountNumber = null;
+      try {
+        const lookup = await cbsMockService.lookupCustomerByPhone(normalizedPhone);
+        if (lookup && lookup.found) {
+          accountNumber = lookup.accountNumber;
+        }
+      } catch (err) {
+        console.log(`ℹ️ CBS lookup failed for ${normalizedPhone}:`, err.message);
+      }
+
       activeCustomerCalls[normalizedPhone] = {
         inProgress: false,
         customerSocketId: queueEntry.socketId,
@@ -727,6 +739,7 @@ const handleSocketConnection = async (socket, io) => {
         customerPhone: normalizedPhone,
         customerName: queueEntry.customerName || null,
         customerEmail: queueEntry.customerEmail || null,
+        accountNumber: accountNumber, // Store for CBS updates later
         callRoom: callRoom,
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
       };
@@ -2388,17 +2401,29 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      // TODO: Update database with new value
-      // This would call CBS service to update the customer's phone/email
-
-      io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
-        "customer:change-approved",
-        {
-          changeType,
-          newValue,
-          message: `Your ${changeType} change has been approved and updated successfully`,
+      // Update mock CBS database
+      try {
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
+        // In this flow, OTP was verified on the frontend.
+        // We call the CBS service to record the change.
+        if (changeType === "phone") {
+          await cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
+        } else if (changeType === "email") {
+          await cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
         }
-      );
+
+        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+          "customer:change-approved",
+          {
+            changeType,
+            newValue,
+            message: `Your ${changeType} change has been approved and updated successfully in banking system`,
+          }
+        );
+      } catch (cbsError) {
+        console.error(`❌ CBS Update Error:`, cbsError);
+        socket.emit("error", { message: "Failed to update record in banking system" });
+      }
 
       console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
     });
@@ -2440,17 +2465,26 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      // TODO: Update database with new address
-      // This would call CBS service to update the customer's address
+      // Update mock CBS database
+      try {
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
+        // Construct the address string for CBS
+        const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
-      io.to(activeCustomerCalls[customerId].customerSocketId).emit(
-        "customer:change-approved",
-        {
-          changeType: "address",
-          addressType,
-          message: `Your ${addressType} address change has been approved and updated successfully`,
-        }
-      );
+        await cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType);
+
+        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+          "customer:change-approved",
+          {
+            changeType: "address",
+            addressType,
+            message: `Your ${addressType} address change has been approved and updated successfully in banking system`,
+          }
+        );
+      } catch (cbsError) {
+        console.error(`❌ CBS Update Error:`, cbsError);
+        socket.emit("error", { message: "Failed to update address in banking system" });
+      }
 
       console.log(`✅ Approval notification sent to customer ${customerId}`);
     });
@@ -2478,6 +2512,40 @@ const handleSocketConnection = async (socket, io) => {
       );
 
       console.log(`✅ Rejection notification sent to customer ${customerId}`);
+    });
+
+    // Manager approves account activation
+    socket.on("manager:approve-account-activation", async (data) => {
+      if (role !== "manager") return;
+
+      const { customerId, accountNumber } = data;
+      const normalizedCustomerId = normalizePhone(customerId);
+      console.log(`✅ Manager ${email} approved account activation for customer ${normalizedCustomerId}`);
+
+      if (!activeCustomerCalls[normalizedCustomerId]) {
+        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
+        return;
+      }
+
+      // Update mock CBS database
+      try {
+        // Since we are bypassing the full OTP/NID validation in this mock flow for simplicity
+        // after manager manual verification, we directly call a status update
+        await cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID");
+
+        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+          "customer:account-activated",
+          {
+            accountNumber,
+            message: "Your dormant account has been successfully activated in banking system",
+          }
+        );
+      } catch (cbsError) {
+        console.error(`❌ CBS Activation Error:`, cbsError);
+        socket.emit("error", { message: "Failed to activate account in banking system" });
+      }
+
+      console.log(`✅ Activation notification sent to customer ${normalizedCustomerId}`);
     });
     // ============ END CHANGE REQUEST PANEL WORKFLOW ============
 
@@ -4738,6 +4806,25 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     `📢 Broadcasting queued call to ${selectedManagers.length} managers: ${selectedManagers.map(m => m.email).join(', ')}`
   );
 
+  // Fetch customer info from CBS
+  const cbsMockService = require("./cbsMockService");
+  let customerInfo = {};
+  let accountNumber = null;
+  try {
+    const cbsData = await cbsMockService.lookupCustomerByPhone(nextInQueue.customerPhone);
+    if (cbsData.found) {
+      customerInfo = {
+        customerName: cbsData.name,
+        customerEmail: cbsData.email,
+        customerImage: cbsData.profileImage,
+        accountNumber: cbsData.accountNumber,
+      };
+      accountNumber = cbsData.accountNumber;
+    }
+  } catch (error) {
+    console.error(`Error fetching customer info for ${nextInQueue.customerPhone}:`, error);
+  }
+
   // Store active call with broadcast info and verification info
   activeCustomerCalls[normalizedCustomerPhone] = {
     inProgress: true,
@@ -4747,27 +4834,12 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     timeout: null,
     startTime: Date.now(),
     customerPhone: normalizedCustomerPhone,
+    accountNumber: accountNumber, // Store for CBS updates
     callRoom: roomId,
     callRoomLink: callRoomLink,
     fromQueue: true,
     verificationInfo: nextInQueue.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
   };
-
-  // Fetch customer info from CBS
-  const cbsMockService = require("./cbsMockService");
-  let customerInfo = {};
-  try {
-    const cbsData = await cbsMockService.lookupCustomerByPhone(nextInQueue.customerPhone);
-    if (cbsData.found) {
-      customerInfo = {
-        customerName: cbsData.name,
-        customerEmail: cbsData.email,
-        customerImage: cbsData.profileImage,
-      };
-    }
-  } catch (error) {
-    console.error(`Error fetching customer info for ${nextInQueue.customerPhone}:`, error);
-  }
 
   // BROADCAST: Send call request to all selected managers simultaneously
   for (const manager of selectedManagers) {
