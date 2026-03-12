@@ -2226,15 +2226,15 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    // Customer submits change request (phone/email)
+    // Customer or Manager submits change request (phone/email)
     socket.on("customer:submit-change-request", (data) => {
-      if (role !== "customer") return;
-
-      const { changeType, newValue, currentValue } = data;
+      // Allow both customer and manager to trigger this
+      // If manager triggers it, it's a "submit on behalf" flow
+      const { changeType, newValue, currentValue, verified } = data;
       const normalizedPhone = normalizePhone(phone);
       const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 Customer ${normalizedPhone} submitted ${changeType} change request: ${currentValue} → ${newValue}`);
+      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${changeType} change request for ${normalizedPhone}: ${currentValue} → ${newValue}`);
 
       if (!activeCall || !activeCall.currentManagerEmail) {
         console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
@@ -2250,8 +2250,9 @@ const handleSocketConnection = async (socket, io) => {
           changeType,
           newValue,
           currentValue,
+          verified: verified || false
         });
-        console.log(`✅ Change request forwarded to manager ${activeCall.currentManagerEmail}`);
+        console.log(`✅ Change request forwarded/echoed to manager ${activeCall.currentManagerEmail}`);
       }
     });
 
@@ -2282,17 +2283,15 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    // Customer submits address change request
+    // Customer or Manager submits address change request
     socket.on("customer:submit-address-change-request", (data) => {
-      if (role !== "customer") return;
-
+      // Allow both customer and manager to trigger this
       const { addressType, addressData } = data;
       const normalizedPhone = normalizePhone(phone);
       const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 Customer ${normalizedPhone} submitted ${addressType} address change request`);
-      console.log('📄 Address Data received:', JSON.stringify(addressData, null, 2));
-      console.log('📎 Documents:', addressData.documents);
+      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${addressType} address change request for ${normalizedPhone}`);
+      console.log('📄 Address Data:', JSON.stringify(addressData, null, 2));
 
       if (!activeCall || !activeCall.currentManagerEmail) {
         console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
@@ -2308,7 +2307,7 @@ const handleSocketConnection = async (socket, io) => {
           addressType,
           addressData,
         });
-        console.log(`✅ Address change request forwarded to manager ${activeCall.currentManagerEmail}`);
+        console.log(`✅ Address change request forwarded/echoed to manager ${activeCall.currentManagerEmail}`);
       }
     });
 
