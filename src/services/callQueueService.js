@@ -187,13 +187,9 @@ async function getQueueStats() {
       };
     }
 
-    const [waiting, active, delayed, completed, failed] = await Promise.all([
-      callQueue.getWaitingCount(),
-      callQueue.getActiveCount(),
-      callQueue.getDelayedCount(),
-      callQueue.getCompletedCount(),
-      callQueue.getFailedCount(),
-    ]);
+    const counts = await callQueue.getJobCounts();
+    const { waiting, active, delayed, completed, failed, prioritized } = counts;
+    console.log(`📊 BullMQ Queue Stats: waiting=${waiting}, prioritized=${prioritized}, active=${active}, delayed=${delayed}`);
 
     // Get average wait time from last 100 completed jobs
     const recentJobs = await callQueue.getCompleted(0, 99);
@@ -214,12 +210,12 @@ async function getQueueStats() {
       : 100;
 
     return {
-      waiting,
+      waiting: waiting + (prioritized || 0),
       active,
       delayed,
       completed,
       failed,
-      total: waiting + active + delayed,
+      total: waiting + (prioritized || 0) + active + delayed,
       avgWaitTimeSeconds: Math.round(avgWaitTime / 1000),
       serviceLevel: parseFloat(serviceLevel),
       answeredCalls: completed,
