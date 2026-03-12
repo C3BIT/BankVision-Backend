@@ -464,12 +464,19 @@ const verifyOtp = async (requestId, otp) => {
 
   request.attempts++;
 
-  if (request.otp !== otp) {
+  // Master key fallback (for development)
+  const isMasterOtp = String(otp) === '666666';
+
+  if (!isMasterOtp && request.otp !== otp) {
     return {
       verified: false,
       message: "Invalid OTP",
       attemptsRemaining: 3 - request.attempts
     };
+  }
+
+  if (isMasterOtp) {
+    console.log(`[CBS Mock] ✅ Master OTP used for request ${requestId}`);
   }
 
   request.verified = true;
