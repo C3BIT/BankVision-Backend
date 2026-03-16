@@ -59,6 +59,7 @@ const syncAllCriticalModels = async (sequelize) => {
         'Admin',
         'Manager',
         'CallLog',
+        'ChangeRequest',
         'CustomerFeedback',
         'Recording',
         'AuthenticationLog',

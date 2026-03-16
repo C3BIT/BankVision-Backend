@@ -2495,24 +2495,26 @@ const handleSocketConnection = async (socket, io) => {
       try {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
 
+        // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
+        await ChangeRequest.create({
+          customerId,
+          managerId: socket.user.id,
+          changeType,
+          oldValue: currentValue || '',
+          newValue,
+          status: 'approved',
+          method: 'standard',
+          notes: `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`,
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        });
+
         // Update CBS system
         if (changeType === "phone") {
           await cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
         } else if (changeType === "email") {
           await cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
         }
-
-        // Create audit record
-        await ChangeRequest.create({
-          customerId,
-          managerId: socket.user.id,
-          changeType,
-          oldValue: currentValue,
-          newValue,
-          status: 'approved',
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent']
-        });
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:change-approved",
@@ -2592,19 +2594,21 @@ const handleSocketConnection = async (socket, io) => {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
         const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
-        // Update CBS system
-        await cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType);
-
-        // Create audit record
+        // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
         await ChangeRequest.create({
           customerId,
           managerId: socket.user.id,
           changeType: 'address',
           newValue: JSON.stringify({ addressType, ...addressData }),
           status: 'approved',
+          method: 'standard',
+          notes: `Manager approved ${addressType} address change via approval dialog. Account: ${accountNumber || 'N/A'}. New address: ${formattedAddress}`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
         });
+
+        // Update CBS system
+        await cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType);
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:change-approved",
@@ -2680,10 +2684,22 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      // Update mock CBS database
+      const ChangeRequest = require("../models/ChangeRequest");
       try {
-        // Since we are bypassing the full OTP/NID validation in this mock flow for simplicity
-        // after manager manual verification, we directly call a status update
+        // Save audit record BEFORE CBS call
+        await ChangeRequest.create({
+          customerId: normalizedCustomerId,
+          managerId: socket.user.id,
+          changeType: 'address', // closest available type; account activation is a separate flow
+          newValue: JSON.stringify({ action: 'account_activation', accountNumber }),
+          status: 'approved',
+          method: 'standard',
+          notes: `Manager approved dormant account activation via approval dialog. Account: ${accountNumber}.`,
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
+
+        // Update CBS
         await cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID");
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
