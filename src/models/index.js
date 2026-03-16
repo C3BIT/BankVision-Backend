@@ -26,6 +26,9 @@ CustomerFeedback.belongsTo(CallLog, { foreignKey: 'callLogId', as: 'callLog' });
 CallLog.hasMany(Recording, { foreignKey: 'callLogId', as: 'recordings' });
 Recording.belongsTo(CallLog, { foreignKey: 'callLogId', as: 'callLog' });
 
+ChangeRequest.belongsTo(Manager, { foreignKey: 'managerId', as: 'manager' });
+Manager.hasMany(ChangeRequest, { foreignKey: 'managerId', as: 'changeRequests' });
+
 // CallAgentReport association is defined in CallAgentReport.js to avoid load-order issues
 
 const sequelize = require('../configs/sequelize');

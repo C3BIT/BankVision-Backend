@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { AccessToken } = require('livekit-server-sdk');
 const { Admin } = require('../models/Admin');
-const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog } = require('../models');
+const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest } = require('../models');
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { logAdminActivity, getClientIP } = require('../services/loggingService');
@@ -1482,9 +1482,65 @@ const getAgentMonitorData = async (req, res) => {
   }
 };
 
+// ── Service Change Request Audit Log ──────────────────────────────────────────
+const getChangeRequests = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 25);
+    const offset = (page - 1) * limit;
+
+    const where = {};
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.changeType) where.changeType = req.query.changeType;
+    if (req.query.customerId) where.customerId = { [Op.like]: `%${req.query.customerId}%` };
+    if (req.query.managerId) where.managerId = req.query.managerId;
+    if (req.query.dateFrom || req.query.dateTo) {
+      where.createdAt = {};
+      if (req.query.dateFrom) where.createdAt[Op.gte] = new Date(req.query.dateFrom);
+      if (req.query.dateTo) {
+        const to = new Date(req.query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt[Op.lte] = to;
+      }
+    }
+
+    const { count, rows } = await ChangeRequest.findAndCountAll({
+      where,
+      include: [
+        {
+          model: Manager,
+          as: 'manager',
+          attributes: ['id', 'name', 'email'],
+          required: false,
+        },
+      ],
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        requests: rows,
+        pagination: {
+          total: count,
+          page,
+          limit,
+          totalPages: Math.ceil(count / limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get Change Requests Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to fetch change requests' });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
+  getChangeRequests,
   getManagers,
   getDashboardStats,
   resetManagerPassword,
