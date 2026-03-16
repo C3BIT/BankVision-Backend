@@ -2493,7 +2493,7 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       try {
-        const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
 
         // Update CBS system
         if (changeType === "phone") {
@@ -2589,7 +2589,7 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       try {
-        const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
         const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
         // Update CBS system
