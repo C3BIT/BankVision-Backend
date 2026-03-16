@@ -1,4 +1,4 @@
-const cbsMockService = require("../services/cbsMockService");
+const cbsMockService = require("../services/cbsService");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
 

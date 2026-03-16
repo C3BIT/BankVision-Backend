@@ -2,11 +2,10 @@
  * Customer Service
  *
  * This service fetches customer data from CBS (Core Banking System).
- * In production, these would be actual API calls to the bank's CBS.
- * Currently using cbsMockService to simulate CBS responses.
+ * All CBS calls go through cbsService.js — swap that file when real APIs arrive.
  */
 
-const cbsMockService = require("./cbsMockService");
+const cbsMockService = require("./cbsService");
 
 /**
  * Get list of accounts by phone number

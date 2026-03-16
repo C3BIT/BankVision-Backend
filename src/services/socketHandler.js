@@ -20,7 +20,7 @@ const {
 const crypto = require("crypto");
 const callLogService = require("./callLogService");
 const customerService = require("./customerService");
-const cbsMockService = require("./cbsMockService");
+const cbsMockService = require("./cbsService");
 const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
@@ -4345,7 +4345,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   }
 
   // Fetch customer info from CBS
-  const cbsMockService = require("./cbsMockService");
+  const cbsMockService = require("./cbsService");
   let customerInfo = {};
   try {
     const cbsData = await cbsMockService.lookupCustomerByPhone(normalizedCustomerPhone);
@@ -4659,7 +4659,7 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
   );
 
   // Fetch customer info from CBS
-  const cbsMockService = require("./cbsMockService");
+  const cbsMockService = require("./cbsService");
   let customerInfo = {};
   let accountNumber = null;
   try {
