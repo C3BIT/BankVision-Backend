@@ -1,6 +1,8 @@
 const axios = require("axios");
 const https = require("https");
 const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL } = require("../configs/variables");
+// Docker-internal services (MinIO, OpenCV, MXFace) use self-signed certs in all environments
+const internalHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 const rekognition = require("../configs/rekognition");
 
 // MXFace API (legacy)
@@ -74,7 +76,7 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
 
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      httpsAgent: internalHttpsAgent,
       timeout: 15000, // 15s timeout
     });
     return Buffer.from(response.data, "binary").toString("base64");
@@ -94,7 +96,7 @@ const impageBufferFromUrl = async (imageUrl) => {
 
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      httpsAgent: internalHttpsAgent,
       timeout: 15000,
     });
     return response.data;
@@ -122,7 +124,7 @@ const compareFaces = async (imagePath1, imagePath2) => {
       encoded_image1: encodedImage1,
       encoded_image2: encodedImage2,
     },
-    httpsAgent: new (require("https").Agent)({ rejectUnauthorized: false }),
+    httpsAgent: internalHttpsAgent,
   };
   const response = await axios(options);
   return response.data;
@@ -180,7 +182,7 @@ const compareFacesByOpenCV = async (imagePath1, imagePath2) => {
         image2: encodedImage2,
       },
       {
-        timeout: 45000, // Increased timeout for heavy processing
+        timeout: 15000, // 15s is sufficient for local OpenCV service
         headers: {
           "Content-Type": "application/json",
         },
@@ -189,14 +191,18 @@ const compareFacesByOpenCV = async (imagePath1, imagePath2) => {
 
     const result = response.data;
 
+    if (result == null || typeof result.matched !== 'boolean') {
+      throw new Error(`Face Service returned unexpected response: ${JSON.stringify(result)}`);
+    }
+
     console.log(`[OpenCV] Result: similarity=${result.similarity}%, matched=${result.matched}`);
 
     return {
       matched: result.matched,
-      similarity: result.similarity,
-      confidence: result.confidence,
-      facesDetected: result.faces_detected,
-      message: result.message,
+      similarity: result.similarity ?? 0,
+      confidence: result.confidence ?? 0,
+      facesDetected: result.faces_detected ?? 0,
+      message: result.message ?? '',
     };
   } catch (error) {
     if (error.response) {

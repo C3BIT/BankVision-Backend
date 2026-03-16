@@ -12,7 +12,7 @@ const socketAuthMiddleware = async (socket, next) => {
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, jwtSecret);
+      const decoded = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
       // Handle admin/supervisor tokens (they have type: 'admin')
       let role = decoded.role;

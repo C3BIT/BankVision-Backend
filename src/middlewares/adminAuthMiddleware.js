@@ -15,7 +15,7 @@ const adminAuthenticateMiddleware = (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, jwtSecret);
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
     if (decoded.type !== 'admin') {
       return res.status(403).json({
@@ -52,7 +52,7 @@ const supervisorAuthMiddleware = (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, jwtSecret);
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
     if (decoded.type !== 'admin') {
       return res.status(403).json({
@@ -95,7 +95,7 @@ const superAdminAuthMiddleware = (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, jwtSecret);
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
     if (decoded.type !== 'admin') {
       return res.status(403).json({

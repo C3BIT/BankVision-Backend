@@ -3,7 +3,10 @@ require('dotenv').config({ override: true }); // Load from .env and override pro
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "production",
   PORT: process.env.PORT || 3000,
-  jwtSecret: process.env.JWT_SECRET || "vb_jwt_secret",
+  jwtSecret: (() => {
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
+    return process.env.JWT_SECRET;
+  })(),
   JWT_EXPIRATION: process.env.JWT_EXPIRATION,
 
   // Email config
@@ -54,6 +57,6 @@ module.exports = {
   REDIS_PASSWORD: process.env.REDIS_PASSWORD,
 
   // CBS API (Production)
-  CBS_API_KEY: process.env.CBS_API_KEY || "your_production_api_key_here",
+  CBS_API_KEY: process.env.CBS_API_KEY,
   CBS_API_URL: process.env.CBS_API_URL || "https://api.yourbank.com/v1",
 };

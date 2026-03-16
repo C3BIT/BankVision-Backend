@@ -100,20 +100,10 @@ app.use((req, res, next) => {
 app.use(cookieParser()); // Parse cookies for httpOnly token support
 app.use(requestIdMiddleware); // Add correlation ID for distributed tracing
 
-// Debug logging for ALL requests
-app.use((req, res, next) => {
-  if (req.path.includes('/cbs/')) {
-    console.log(`📥 CBS Request: ${req.method} ${req.path}`);
-    console.log(`  Origin: ${req.headers.origin || 'none'}`);
-    console.log(`  Cookies: ${req.cookies ? Object.keys(req.cookies).join(', ') : 'none'}`);
-    console.log(`  Auth header: ${req.headers.authorization ? 'present' : 'missing'}`);
-  }
-  next();
-});
 
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: false, limit: '1mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(responseHandler());
 // Serve static files from uploads directory
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));

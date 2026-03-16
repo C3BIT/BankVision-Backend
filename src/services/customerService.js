@@ -16,7 +16,7 @@ const cbsMockService = require("./cbsMockService");
 const getAccountsListByPhone = async (phone) => {
   console.log(`📞 Fetching accounts from CBS for phone: ${phone}`);
 
-  const accounts = await cbsMockService.getAccountsByPhone(phone);
+  const accounts = await cbsMockService.getAccountsByPhone(phone) ?? [];
 
   if (accounts.length === 0) {
     console.log(`❌ No accounts found in CBS for phone: ${phone}`);

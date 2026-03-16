@@ -9,24 +9,17 @@ const isTokenExpired = (expirationTime) =>
 
 const managerAuthenticateMiddleware = (req, res, next) => {
   try {
-    // Debug logging
-    console.log('🔐 Auth check for:', req.method, req.path);
-    console.log('🍪 Cookies:', req.cookies ? Object.keys(req.cookies) : 'no cookies');
-    console.log('🔑 Auth header:', req.headers.authorization ? 'present' : 'missing');
-
     // Get token from cookie or Authorization header (backward compatible)
     const token = getTokenFromRequest(req);
     if (!token) {
-      console.log('❌ No token found in request');
       throw Object.assign(new Error(), {
         status: statusCodes.UNAUTHORIZED,
         error: { code: 40113 },
       });
     }
-    console.log('✅ Token found, length:', token.length);
 
     try {
-      const decoded = jsonwebtoken.verify(token, jwtSecret);
+      const decoded = jsonwebtoken.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
       if (isTokenExpired(decoded.exp)) {
         throw Object.assign(new Error(), {

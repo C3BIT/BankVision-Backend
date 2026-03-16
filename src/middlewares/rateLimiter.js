@@ -26,6 +26,7 @@ const createRateLimiter = (options = {}) => {
       return `${ip}`;
     },
     skipSuccessfulRequests = false,
+    failOpen = false, // If false (default), deny requests when Redis is unavailable
     message = 'Too many requests, please try again later.'
   } = options;
 
@@ -81,8 +82,16 @@ const createRateLimiter = (options = {}) => {
       next();
     } catch (error) {
       console.error('Rate limiter error:', error);
-      // On error, allow the request (fail open)
-      next();
+      if (failOpen) {
+        // Non-sensitive endpoints: allow through when Redis is down
+        next();
+      } else {
+        // Security-sensitive endpoints: deny when Redis is unavailable to prevent brute force
+        return res.status(503).json({
+          success: false,
+          message: 'Service temporarily unavailable, please try again shortly.'
+        });
+      }
     }
   };
 };
@@ -94,6 +103,7 @@ const apiRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   maxRequests: 100,
   keyPrefix: 'rate_limit:api:',
+  failOpen: true, // General API — non-critical, allow through on Redis failure
   message: 'Too many API requests from this IP, please try again later.'
 });
 
@@ -178,7 +188,11 @@ const bruteForceProtection = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Brute force protection error:', error);
-    next();
+    // Fail closed — deny on Redis error to prevent brute force during outage
+    return res.status(503).json({
+      success: false,
+      message: 'Service temporarily unavailable, please try again shortly.'
+    });
   }
 };
 

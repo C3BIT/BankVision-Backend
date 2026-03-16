@@ -2,9 +2,12 @@ const express = require("express");
 const { AccessToken } = require("livekit-server-sdk");
 const router = express.Router();
 
-// OpenVidu/LiveKit configuration
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "vbrm_openvidu_key";
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "vbrm_openvidu_secret_2024_secure_key";
+// OpenVidu/LiveKit configuration — must be set via environment variables
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
+if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+  throw new Error('LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set in environment');
+}
 
 /**
  * Generate a LiveKit access token for a participant

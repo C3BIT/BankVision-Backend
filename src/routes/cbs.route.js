@@ -24,7 +24,7 @@ router.post("/address/update", managerAuthenticateMiddleware, cbsController.upda
 router.post("/account/status", managerAuthenticateMiddleware, cbsController.getAccountStatus);
 router.post("/account/activate", managerAuthenticateMiddleware, cbsController.activateAccount);
 
-// Development only - get pending request details (exposes OTP)
-router.get("/request/:requestId", cbsController.getPendingRequest);
+// Development only - get pending request details (requires auth to prevent OTP exposure)
+router.get("/request/:requestId", managerAuthenticateMiddleware, cbsController.getPendingRequest);
 
 module.exports = router;

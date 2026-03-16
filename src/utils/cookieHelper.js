@@ -9,13 +9,15 @@
  * @param {number} maxAge - Cookie max age in milliseconds (default 8 hours)
  */
 const setAuthCookie = (res, token, maxAge = 8 * 60 * 60 * 1000) => {
+  // sameSite:'none' requires secure:true per browser spec — always true when using cross-origin cookies
+  const secure = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true';
   res.cookie('auth_token', token, {
     httpOnly: true,        // Cannot be accessed by JavaScript
-    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-    sameSite: 'none',      // Allow cross-subdomain (manager.X → api.X)
+    secure: secure,
+    sameSite: secure ? 'none' : 'lax', // 'none' only valid with secure flag
     maxAge: maxAge,        // Cookie expiration
     path: '/',             // Available for all routes
-    domain: process.env.COOKIE_DOMAIN, // Share across all subdomains
+    domain: process.env.COOKIE_DOMAIN || undefined, // Share across subdomains if configured
   });
 };
 
@@ -24,12 +26,13 @@ const setAuthCookie = (res, token, maxAge = 8 * 60 * 60 * 1000) => {
  * @param {object} res - Express response object
  */
 const clearAuthCookie = (res) => {
+  const secure = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true';
   res.clearCookie('auth_token', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'none',
+    secure: secure,
+    sameSite: secure ? 'none' : 'lax',
     path: '/',
-    domain: process.env.COOKIE_DOMAIN,
+    domain: process.env.COOKIE_DOMAIN || undefined,
   });
 };
 
@@ -48,11 +51,6 @@ const getTokenFromRequest = (req) => {
   // 2. Try cookie
   if (req.cookies && req.cookies.auth_token) {
     return req.cookies.auth_token;
-  }
-
-  // 3. Try query param (for direct download links, etc.)
-  if (req.query && req.query.token) {
-    return req.query.token;
   }
 
   return null;

@@ -211,12 +211,7 @@ router.get('/:id', adminAuthenticateMiddleware, async (req, res) => {
  */
 router.get('/:id/download', async (req, res) => {
   try {
-    // Check for token in query string (for direct download links)
-    if (req.query.token && !req.headers.authorization) {
-      req.headers.authorization = `Bearer ${req.query.token}`;
-    }
-
-    // Manually verify admin token
+    // Manually verify admin token — Authorization header only (no query params to avoid token logging)
     const jwt = require('jsonwebtoken');
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (!token) {
@@ -224,7 +219,7 @@ router.get('/:id/download', async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
       // Accept admin, super_admin, or type=admin
       if (decoded.role !== 'admin' && decoded.role !== 'super_admin' && decoded.type !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin access required' });
@@ -290,14 +285,13 @@ router.get('/:id/download', async (req, res) => {
 
     console.log('Download file path:', filePath);
 
-    // Check file exists
-    if (!fs.existsSync(filePath)) {
-      console.log('File not found:', filePath);
+    // Check file exists and get stats (async — avoids blocking event loop)
+    let stat;
+    try {
+      stat = await fs.promises.stat(filePath);
+    } catch {
       return res.status(404).json({ success: false, message: 'Recording file not found' });
     }
-
-    // Get file stats
-    const stat = fs.statSync(filePath);
 
     console.log('Streaming file:', filename, 'Size:', stat.size);
 

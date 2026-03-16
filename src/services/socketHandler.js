@@ -598,74 +598,144 @@ const handleSocketConnection = async (socket, io) => {
       socket.emit("admin:managers-list", getAllManagers());
     });
 
-    // Recording management (Admin/Supervisor only)
+    // Recording management (Admin/Supervisor use recordingService; Manager uses Recording model)
     socket.on("recording:start", async (data) => {
-      if (!isAdmin && role !== 'supervisor') {
-        return socket.emit("error", { message: "Unauthorized" });
-      }
-
-      const { roomName, customerPhone, managerEmail, callLogId } = data;
-      try {
-        const recordingService = require('./recordingService');
-        const result = await recordingService.startRecording(roomName, {
-          customerPhone,
-          managerEmail,
-          callLogId,
-          recordedBy: email
-        });
-        socket.emit("recording:started", result);
-
-        // Notify room participants
-        io.emit("recording:status", {
-          roomName,
-          status: 'recording',
-          recordingId: result.recordingId
-        });
-
-        console.log(`🎬 Recording started by ${email} for room ${roomName}`);
-      } catch (error) {
-        socket.emit("recording:error", { message: error.message });
+      if (isAdmin || role === 'supervisor') {
+        const { roomName, customerPhone: targetPhone, managerEmail: targetManager, callLogId } = data;
+        try {
+          const recordingService = require('./recordingService');
+          const result = await recordingService.startRecording(roomName, {
+            customerPhone: targetPhone,
+            managerEmail: targetManager,
+            callLogId,
+            recordedBy: email
+          });
+          socket.emit("recording:started", result);
+          io.emit("recording:status", { roomName, status: 'recording', recordingId: result.recordingId });
+          console.log(`🎬 Recording started by admin/supervisor ${email} for room ${roomName}`);
+        } catch (error) {
+          socket.emit("recording:error", { message: error.message });
+        }
+      } else if (role === "manager") {
+        const customerPhone = socket.user.customerPhone;
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+          return socket.emit("error", { message: "No active call" });
+        }
+        const call = activeCustomerCalls[customerPhone];
+        if (call.isRecording) {
+          return socket.emit("error", { message: "Recording already in progress" });
+        }
+        try {
+          const recording = await Recording.create({
+            callLogId: call.callLogId || null,
+            callRoom: call.callRoom,
+            customerPhone,
+            managerEmail: email,
+            status: 'recording',
+            startTime: new Date(),
+            recordedBy: email,
+            metadata: { initiatedVia: 'socket' }
+          });
+          call.isRecording = true;
+          call.recordingId = recording.id;
+          call.recordingStartTime = Date.now();
+          io.to(call.customerSocketId).emit("call:recording-started", {
+            recordingId: recording.id,
+            message: "This call is being recorded",
+            timestamp: Date.now()
+          });
+          socket.emit("recording:started", { recordingId: recording.id, startTime: call.recordingStartTime });
+          if (call.supervisors) {
+            call.supervisors.forEach(supervisor => {
+              io.to(supervisor.socketId).emit("call:recording-started", {
+                customerPhone, recordingId: recording.id, startedBy: email
+              });
+            });
+          }
+          console.log(`🔴 Recording started for call ${customerPhone} by manager ${email}`);
+        } catch (error) {
+          console.error("❌ Error starting recording:", error);
+          socket.emit("error", { message: "Failed to start recording" });
+        }
+      } else {
+        socket.emit("error", { message: "Unauthorized" });
       }
     });
 
     socket.on("recording:stop", async (data) => {
-      if (!isAdmin && role !== 'supervisor') {
-        return socket.emit("error", { message: "Unauthorized" });
-      }
-
-      const { egressId, recordingId, roomName } = data;
-      try {
-        const recordingService = require('./recordingService');
-        const result = await recordingService.stopRecording(egressId);
-        socket.emit("recording:stopped", result);
-
-        // Notify room participants
-        if (roomName) {
-          io.emit("recording:status", {
-            roomName,
-            status: 'stopped',
-            recordingId
-          });
+      if (isAdmin || role === 'supervisor') {
+        const { egressId, recordingId, roomName } = data;
+        try {
+          const recordingService = require('./recordingService');
+          const result = await recordingService.stopRecording(egressId);
+          socket.emit("recording:stopped", result);
+          if (roomName) {
+            io.emit("recording:status", { roomName, status: 'stopped', recordingId });
+          }
+          console.log(`🛑 Recording stopped by admin/supervisor ${email}`);
+        } catch (error) {
+          socket.emit("recording:error", { message: error.message });
         }
-
-        console.log(`🛑 Recording stopped by ${email}`);
-      } catch (error) {
-        socket.emit("recording:error", { message: error.message });
+      } else if (role === "manager") {
+        const customerPhone = socket.user.customerPhone;
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+          return socket.emit("error", { message: "No active call" });
+        }
+        const call = activeCustomerCalls[customerPhone];
+        if (!call.isRecording || !call.recordingId) {
+          return socket.emit("error", { message: "No recording in progress" });
+        }
+        try {
+          const duration = Math.floor((Date.now() - call.recordingStartTime) / 1000);
+          await Recording.update(
+            { status: 'processing', endTime: new Date(), duration },
+            { where: { id: call.recordingId } }
+          );
+          const recordingId = call.recordingId;
+          call.isRecording = false;
+          delete call.recordingId;
+          delete call.recordingStartTime;
+          io.to(call.customerSocketId).emit("call:recording-stopped", { recordingId, duration, timestamp: Date.now() });
+          socket.emit("recording:stopped", { recordingId, duration });
+          if (call.supervisors) {
+            call.supervisors.forEach(supervisor => {
+              io.to(supervisor.socketId).emit("call:recording-stopped", {
+                customerPhone, recordingId, stoppedBy: email, duration
+              });
+            });
+          }
+          console.log(`⏹️ Recording stopped for call ${customerPhone}, duration: ${duration}s`);
+        } catch (error) {
+          console.error("❌ Error stopping recording:", error);
+          socket.emit("error", { message: "Failed to stop recording" });
+        }
+      } else {
+        socket.emit("error", { message: "Unauthorized" });
       }
     });
 
     socket.on("recording:status", async (data) => {
-      if (!isAdmin && role !== 'supervisor') {
-        return socket.emit("error", { message: "Unauthorized" });
-      }
-
-      const { egressId } = data;
-      try {
-        const recordingService = require('./recordingService');
-        const result = await recordingService.getRecordingStatus(egressId);
-        socket.emit("recording:status-update", result);
-      } catch (error) {
-        socket.emit("recording:error", { message: error.message });
+      if (isAdmin || role === 'supervisor') {
+        const { egressId } = data;
+        try {
+          const recordingService = require('./recordingService');
+          const result = await recordingService.getRecordingStatus(egressId);
+          socket.emit("recording:status-update", result);
+        } catch (error) {
+          socket.emit("recording:error", { message: error.message });
+        }
+      } else {
+        const customerPhone = socket.user.customerPhone || data?.customerPhone;
+        if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+          return socket.emit("recording:status-response", { isRecording: false });
+        }
+        const call = activeCustomerCalls[customerPhone];
+        socket.emit("recording:status-response", {
+          isRecording: call.isRecording || false,
+          recordingId: call.recordingId || null,
+          startTime: call.recordingStartTime || null,
+          duration: call.recordingStartTime ? Math.floor((Date.now() - call.recordingStartTime) / 1000) : 0
+        });
       }
     });
 
@@ -960,7 +1030,7 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       // Track verification in active call
-      activeCustomerCalls[phone].phoneVerified = true;
+      activeCustomerCalls[normalizedPhone].phoneVerified = true;
 
       // Update call log
       if (activeCall.callRoom) {
@@ -971,13 +1041,22 @@ const handleSocketConnection = async (socket, io) => {
         }
       }
 
-      const managerSocketId = getOnlineUsersWithInfo().find(
+      // Acknowledge back to customer
+      socket.emit("customer:phone-verified", {
+        phone: normalizedPhone,
+        verified: true,
+        message: "Phone number verified successfully",
+      });
+
+      const managerSocketId = activeCall.managerSocketId || getOnlineUsersWithInfo().find(
         (user) => user.email === activeCall.currentManagerEmail
       )?.socketId;
 
       if (managerSocketId) {
         io.to(managerSocketId).emit("customer:phone-verified", {
           customerId: phone,
+          phone: normalizedPhone,
+          verified: true,
           message: "Customer has verified their phone number",
           verificationTime: Date.now(),
         });
@@ -1072,16 +1151,17 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("customer:email-verified", async (data) => {
       if (role !== "customer") return;
 
-      console.log(`✅ Customer ${phone} verified email address`);
+      const normalizedPhone = normalizePhone(phone);
+      console.log(`✅ Customer ${normalizedPhone} verified email address`);
 
-      const activeCall = activeCustomerCalls[phone];
+      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${phone}`);
+        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
       }
 
       // Track verification in active call
-      activeCustomerCalls[phone].emailVerified = true;
+      activeCustomerCalls[normalizedPhone].emailVerified = true;
 
       // Update call log
       if (activeCall.callRoom) {
@@ -1092,13 +1172,23 @@ const handleSocketConnection = async (socket, io) => {
         }
       }
 
-      const managerSocketId = getOnlineUsersWithInfo().find(
+      // Acknowledge back to customer
+      socket.emit("customer:email-verified", {
+        email: data?.email,
+        verified: true,
+        message: "Email verified successfully",
+      });
+
+      const managerSocketId = activeCall.managerSocketId || getOnlineUsersWithInfo().find(
         (user) => user.email === activeCall.currentManagerEmail
       )?.socketId;
 
       if (managerSocketId) {
         io.to(managerSocketId).emit("customer:email-verified", {
           customerId: phone,
+          phone: normalizedPhone,
+          email: data?.email,
+          verified: true,
           message: "Customer has verified their email address",
           verificationTime: Date.now(),
         });
@@ -2244,73 +2334,73 @@ const handleSocketConnection = async (socket, io) => {
       // Allow both customer and manager to trigger this
       // If manager triggers it, it's a "submit on behalf" flow
       const { changeType, newValue, currentValue, verified } = data;
-      const normalizedPhone = normalizePhone(phone);
-      const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${changeType} change request for ${normalizedPhone}: ${currentValue} → ${newValue}`);
+      // When manager triggers this, look up customer by customerPhone, not manager's own phone
+      const lookupPhone = role === 'manager'
+        ? normalizePhone(socket.user?.customerPhone)
+        : normalizePhone(phone);
 
-      if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
-        return;
-      }
+      const activeCall = activeCustomerCalls[lookupPhone];
 
-      const managerSocketId = getOnlineUsersWithInfo().find(
-        (user) => user.email === activeCall.currentManagerEmail
-      )?.socketId;
+      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${changeType} change request for ${lookupPhone}: ${currentValue} → ${newValue}`);
 
-      if (managerSocketId) {
-        io.to(managerSocketId).emit("customer:submit-change-request", {
-          changeType,
-          newValue,
-          currentValue,
-          verified: verified || false
-        });
-        console.log(`✅ Change request forwarded/echoed to manager ${activeCall.currentManagerEmail}`);
-      }
-    });
-
-    socket.on("customer:email-verified", (data) => {
-      if (role !== "customer") return;
-
-      const normalizedPhone = normalizePhone(phone);
-      const activeCall = activeCustomerCalls[normalizedPhone];
       if (!activeCall) {
-        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
+        console.log(`⚠️ No active call found for customer ${lookupPhone}`);
         return;
       }
 
-      // Notify both parties of success
-      io.to(socket.id).emit("customer:email-verified", {
-        email: data.email,
-        verified: true,
-        message: "Email verified successfully"
-      });
+      if (role === 'manager' && verified) {
+        // Manager completed the change on behalf of customer — notify customer of success
+        const customerSocketId = activeCall.customerSocketId;
+        if (customerSocketId) {
+          io.to(customerSocketId).emit("customer:change-request-completed", {
+            changeType,
+            newValue,
+            verified: true
+          });
+          console.log(`✅ Notified customer ${lookupPhone} that ${changeType} change was completed by manager`);
+        }
+      } else if (role === 'customer' && activeCall.currentManagerEmail) {
+        // Customer submitted — forward to manager for acknowledgment
+        const managerSocketId = getOnlineUsersWithInfo().find(
+          (user) => user.email === activeCall.currentManagerEmail
+        )?.socketId;
 
-      const managerSocketId = activeCall.managerSocketId;
-      if (managerSocketId) {
-        io.to(managerSocketId).emit("customer:email-verified", {
-          phone: phone,
-          email: data.email,
-          verified: true
-        });
+        if (managerSocketId) {
+          io.to(managerSocketId).emit("customer:submit-change-request", {
+            changeType,
+            newValue,
+            currentValue,
+            verified: verified || false
+          });
+          console.log(`✅ Change request forwarded to manager ${activeCall.currentManagerEmail}`);
+        }
       }
     });
+
+    // customer:email-verified is handled above (merged into the authoritative handler)
 
     // Customer or Manager submits address change request
     socket.on("customer:submit-address-change-request", (data) => {
       // Allow both customer and manager to trigger this
       const { addressType, addressData } = data;
-      const normalizedPhone = normalizePhone(phone);
-      const activeCall = activeCustomerCalls[normalizedPhone];
 
-      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${addressType} address change request for ${normalizedPhone}`);
+      // When manager triggers this, look up customer by customerPhone, not manager's own phone
+      const lookupPhone = role === 'manager'
+        ? normalizePhone(socket.user?.customerPhone)
+        : normalizePhone(phone);
+
+      const activeCall = activeCustomerCalls[lookupPhone];
+
+      console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${addressType} address change request for ${lookupPhone}`);
       console.log('📄 Address Data:', JSON.stringify(addressData, null, 2));
 
       if (!activeCall || !activeCall.currentManagerEmail) {
-        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
+        console.log(`⚠️ No active call found for customer ${lookupPhone}`);
         return;
       }
 
+      // Always forward to manager for approval workflow
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === activeCall.currentManagerEmail
       )?.socketId;
@@ -2320,41 +2410,19 @@ const handleSocketConnection = async (socket, io) => {
           addressType,
           addressData,
         });
-        console.log(`✅ Address change request forwarded/echoed to manager ${activeCall.currentManagerEmail}`);
-      }
-    });
-
-    socket.on("customer:phone-verified", (data) => {
-      if (role !== "customer") return;
-
-      const normalizedPhone = normalizePhone(phone);
-      const activeCall = activeCustomerCalls[normalizedPhone];
-      if (!activeCall) {
-        console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
-        return;
+        console.log(`✅ Address change request forwarded to manager ${activeCall.currentManagerEmail}`);
       }
 
-      const customerSocketId = activeCall.customerSocketId;
-
-      if (!customerSocketId) {
-        return socket.emit("error", { message: "Call not found" });
-      }
-
-      // Notify both parties of success
-      io.to(customerSocketId).emit("customer:phone-verified", {
-        phone: normalizedPhone,
-        verified: true,
-        message: "Phone number verified successfully"
-      });
-
-      const managerSocketId = activeCall.managerSocketId;
-      if (managerSocketId) {
-        io.to(managerSocketId).emit("customer:phone-verified", {
-          phone: normalizedPhone,
-          verified: true
+      // Also notify customer that address change is pending approval
+      if (activeCall.customerSocketId) {
+        io.to(activeCall.customerSocketId).emit("customer:submit-address-change-request", {
+          addressType,
+          addressData,
         });
       }
     });
+
+    // customer:phone-verified is handled above (merged into the authoritative handler)
 
     socket.on("resend:otp", async (data) => {
       const { type, target } = data; // type: 'phone'|'email', target: phone or email string
@@ -2394,6 +2462,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { changeType, customerId, newValue, currentValue } = data;
       const normalizedCustomerId = normalizePhone(customerId);
+      const ChangeRequest = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${changeType} change for customer ${normalizedCustomerId}: ${currentValue} → ${newValue}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2401,16 +2470,27 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      // Update mock CBS database
       try {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
-        // In this flow, OTP was verified on the frontend.
-        // We call the CBS service to record the change.
+
+        // Update CBS system
         if (changeType === "phone") {
           await cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
         } else if (changeType === "email") {
           await cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
         }
+
+        // Create audit record
+        await ChangeRequest.create({
+          customerId,
+          managerId: socket.user.id,
+          changeType,
+          oldValue: currentValue,
+          newValue,
+          status: 'approved',
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        });
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:change-approved",
@@ -2420,20 +2500,21 @@ const handleSocketConnection = async (socket, io) => {
             message: `Your ${changeType} change has been approved and updated successfully in banking system`,
           }
         );
-      } catch (cbsError) {
-        console.error(`❌ CBS Update Error:`, cbsError);
+
+        console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
+      } catch (error) {
+        console.error(`❌ Error approving ${changeType} change:`, error);
         socket.emit("error", { message: "Failed to update record in banking system" });
       }
-
-      console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
     });
 
     // Manager rejects change (phone/email)
-    socket.on("manager:reject-change", (data) => {
+    socket.on("manager:reject-change", async (data) => {
       if (role !== "manager") return;
 
-      const { changeType, customerId, reason } = data;
+      const { changeType, customerId, reason, currentValue } = data;
       const normalizedCustomerId = normalizePhone(customerId);
+      const ChangeRequest = require("../models/ChangeRequest");
       console.log(`❌ Manager ${email} rejected ${changeType} change for customer ${normalizedCustomerId}: ${reason}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2441,15 +2522,34 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
-        "customer:change-rejected",
-        {
+      try {
+        // Create audit record
+        await ChangeRequest.create({
+          customerId,
+          managerId: socket.user.id,
           changeType,
-          message: reason || `Your ${changeType} change request was not approved by the manager`,
-        }
-      );
+          oldValue: currentValue || '',
+          newValue: '',
+          status: 'rejected',
+          rejectionReason: reason,
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        });
 
-      console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
+        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+          "customer:change-rejected",
+          {
+            changeType,
+            reason,
+            message: reason || `Your ${changeType} change request was not approved by the manager`,
+          }
+        );
+
+        console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
+      } catch (error) {
+        console.error(`❌ Error rejecting ${changeType} change:`, error);
+        socket.emit("error", { message: "Failed to reject change request" });
+      }
     });
 
     // Manager approves address change
@@ -2458,6 +2558,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { customerId, addressType, addressData } = data;
       const normalizedCustomerId = normalizePhone(customerId);
+      const ChangeRequest = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${addressType} address change for customer ${normalizedCustomerId}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2465,36 +2566,48 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      // Update mock CBS database
       try {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].accountNumber;
-        // Construct the address string for CBS
         const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
+        // Update CBS system
         await cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType);
+
+        // Create audit record
+        await ChangeRequest.create({
+          customerId,
+          managerId: socket.user.id,
+          changeType: 'address',
+          newValue: JSON.stringify({ addressType, ...addressData }),
+          status: 'approved',
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        });
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:change-approved",
           {
             changeType: "address",
             addressType,
+            addressData,
             message: `Your ${addressType} address change has been approved and updated successfully in banking system`,
           }
         );
-      } catch (cbsError) {
-        console.error(`❌ CBS Update Error:`, cbsError);
+
+        console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
+      } catch (error) {
+        console.error(`❌ Error approving address change:`, error);
         socket.emit("error", { message: "Failed to update address in banking system" });
       }
-
-      console.log(`✅ Approval notification sent to customer ${customerId}`);
     });
 
     // Manager rejects address change
-    socket.on("manager:reject-address-change", (data) => {
+    socket.on("manager:reject-address-change", async (data) => {
       if (role !== "manager") return;
 
       const { customerId, addressType, reason } = data;
       const normalizedCustomerId = normalizePhone(customerId);
+      const ChangeRequest = require("../models/ChangeRequest");
       console.log(`❌ Manager ${email} rejected ${addressType} address change for customer ${normalizedCustomerId}: ${reason}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2502,16 +2615,34 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      io.to(activeCustomerCalls[customerId].customerSocketId).emit(
-        "customer:change-rejected",
-        {
-          changeType: "address",
-          addressType,
-          message: reason || `Your ${addressType} address change request was not approved by the manager`,
-        }
-      );
+      try {
+        // Create audit record
+        await ChangeRequest.create({
+          customerId,
+          managerId: socket.user.id,
+          changeType: 'address',
+          newValue: JSON.stringify({ addressType }),
+          status: 'rejected',
+          rejectionReason: reason,
+          ipAddress: socket.handshake.address,
+          userAgent: socket.handshake.headers['user-agent']
+        });
 
-      console.log(`✅ Rejection notification sent to customer ${customerId}`);
+        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+          "customer:change-rejected",
+          {
+            changeType: "address",
+            addressType,
+            reason,
+            message: reason || `Your ${addressType} address change request was not approved by the manager`,
+          }
+        );
+
+        console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
+      } catch (error) {
+        console.error(`❌ Error rejecting address change:`, error);
+        socket.emit("error", { message: "Failed to reject address change" });
+      }
     });
 
     // Manager approves account activation
@@ -3274,152 +3405,8 @@ const handleSocketConnection = async (socket, io) => {
     // ============ END SUPERVISOR MONITORING EVENTS ============
 
     // ============ RECORDING EVENTS ============
-    socket.on("recording:start", async (data) => {
-      if (role !== "manager") return;
-
-      const customerPhone = socket.user.customerPhone;
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "No active call" });
-      }
-
-      const call = activeCustomerCalls[customerPhone];
-
-      // Check if already recording
-      if (call.isRecording) {
-        return socket.emit("error", { message: "Recording already in progress" });
-      }
-
-      try {
-        // Create recording entry
-        const recording = await Recording.create({
-          callLogId: call.callLogId || null,
-          callRoom: call.callRoom,
-          customerPhone: customerPhone,
-          managerEmail: email,
-          status: 'recording',
-          startTime: new Date(),
-          recordedBy: email,
-          metadata: { initiatedVia: 'socket' }
-        });
-
-        call.isRecording = true;
-        call.recordingId = recording.id;
-        call.recordingStartTime = Date.now();
-
-        // Notify customer that recording started
-        io.to(call.customerSocketId).emit("call:recording-started", {
-          recordingId: recording.id,
-          message: "This call is being recorded",
-          timestamp: Date.now()
-        });
-
-        // Confirm to manager
-        socket.emit("recording:started", {
-          recordingId: recording.id,
-          startTime: call.recordingStartTime
-        });
-
-        // Notify any supervisors
-        if (call.supervisors) {
-          call.supervisors.forEach(supervisor => {
-            io.to(supervisor.socketId).emit("call:recording-started", {
-              customerPhone,
-              recordingId: recording.id,
-              startedBy: email
-            });
-          });
-        }
-
-        console.log(`🔴 Recording started for call ${customerPhone} by ${email}`);
-      } catch (error) {
-        console.error("❌ Error starting recording:", error);
-        socket.emit("error", { message: "Failed to start recording" });
-      }
-    });
-
-    socket.on("recording:stop", async (data) => {
-      if (role !== "manager") return;
-
-      const customerPhone = socket.user.customerPhone;
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "No active call" });
-      }
-
-      const call = activeCustomerCalls[customerPhone];
-
-      if (!call.isRecording || !call.recordingId) {
-        return socket.emit("error", { message: "No recording in progress" });
-      }
-
-      try {
-        const duration = Math.floor((Date.now() - call.recordingStartTime) / 1000);
-
-        // Update recording entry
-        await Recording.update(
-          {
-            status: 'processing',
-            endTime: new Date(),
-            duration: duration
-          },
-          { where: { id: call.recordingId } }
-        );
-
-        const recordingId = call.recordingId;
-
-        call.isRecording = false;
-        delete call.recordingId;
-        delete call.recordingStartTime;
-
-        // Notify customer
-        io.to(call.customerSocketId).emit("call:recording-stopped", {
-          recordingId,
-          duration,
-          timestamp: Date.now()
-        });
-
-        // Confirm to manager
-        socket.emit("recording:stopped", {
-          recordingId,
-          duration
-        });
-
-        // Notify supervisors
-        if (call.supervisors) {
-          call.supervisors.forEach(supervisor => {
-            io.to(supervisor.socketId).emit("call:recording-stopped", {
-              customerPhone,
-              recordingId,
-              stoppedBy: email,
-              duration
-            });
-          });
-        }
-
-        console.log(`⏹️ Recording stopped for call ${customerPhone}, duration: ${duration}s`);
-      } catch (error) {
-        console.error("❌ Error stopping recording:", error);
-        socket.emit("error", { message: "Failed to stop recording" });
-      }
-    });
-
-    socket.on("recording:status", async (data) => {
-      const customerPhone = socket.user.customerPhone || data?.customerPhone;
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("recording:status-response", { isRecording: false });
-      }
-
-      const call = activeCustomerCalls[customerPhone];
-
-      socket.emit("recording:status-response", {
-        isRecording: call.isRecording || false,
-        recordingId: call.recordingId || null,
-        startTime: call.recordingStartTime || null,
-        duration: call.recordingStartTime ? Math.floor((Date.now() - call.recordingStartTime) / 1000) : 0
-      });
-    });
+    // recording:start, recording:stop, recording:status are all handled above
+    // (merged into role-dispatched authoritative handlers)
     // ============ END RECORDING EVENTS ============
 
     // ============ CALL HOLD EVENTS ============
@@ -4122,165 +4109,8 @@ const handleSocketConnection = async (socket, io) => {
     // ============ END WHITEBOARD EVENTS ============
 
     // ============ CHANGE REQUEST EVENTS ============
-    // Manager approves change request (phone/email)
-    socket.on("manager:approve-change", async (data) => {
-      if (role !== "manager") return;
-
-      const { changeType, customerId, newValue, currentValue } = data;
-      const ChangeRequest = require("../models/ChangeRequest");
-
-      console.log(`✅ Manager ${email} approving ${changeType} change for customer ${customerId}`);
-
-      try {
-        // Log the change request
-        await ChangeRequest.create({
-          customerId,
-          managerId: socket.user.id,
-          changeType,
-          oldValue: currentValue,
-          newValue,
-          status: 'approved',
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent']
-        });
-
-        // TODO: Update customer database with new value
-        // For now, just notify the customer of approval
-
-        const normalizedCustomerId = normalizePhone(customerId);
-        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
-        if (customerSocketId) {
-          io.to(customerSocketId).emit("customer:change-approved", {
-            changeType,
-            message: `Your ${changeType} has been approved and updated successfully`,
-            newValue
-          });
-        }
-
-        console.log(`✅ ${changeType} change approved for customer ${customerId}`);
-      } catch (error) {
-        console.error(`❌ Error approving ${changeType} change:`, error);
-        socket.emit("error", { message: "Failed to approve change request" });
-      }
-    });
-
-    // Manager rejects change request (phone/email)
-    socket.on("manager:reject-change", async (data) => {
-      if (role !== "manager") return;
-
-      const { changeType, customerId, reason } = data;
-      const ChangeRequest = require("../models/ChangeRequest");
-
-      console.log(`❌ Manager ${email} rejecting ${changeType} change for customer ${customerId}`);
-
-      try {
-        // Log the change request
-        await ChangeRequest.create({
-          customerId,
-          managerId: socket.user.id,
-          changeType,
-          newValue: '',
-          status: 'rejected',
-          rejectionReason: reason,
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent']
-        });
-
-        const normalizedCustomerId = normalizePhone(customerId);
-        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
-        if (customerSocketId) {
-          io.to(customerSocketId).emit("customer:change-rejected", {
-            changeType,
-            message: reason || `Your ${changeType} change request was not approved`,
-            reason
-          });
-        }
-
-        console.log(`✅ ${changeType} change rejected for customer ${customerId}`);
-      } catch (error) {
-        console.error(`❌ Error rejecting ${changeType} change:`, error);
-        socket.emit("error", { message: "Failed to reject change request" });
-      }
-    });
-
-    // Manager approves address change
-    socket.on("manager:approve-address-change", async (data) => {
-      if (role !== "manager") return;
-
-      const { customerId, addressType, addressData } = data;
-      const ChangeRequest = require("../models/ChangeRequest");
-
-      console.log(`✅ Manager ${email} approving ${addressType} address change for customer ${customerId}`);
-
-      try {
-        // Log the change request
-        await ChangeRequest.create({
-          customerId,
-          managerId: socket.user.id,
-          changeType: 'address',
-          newValue: JSON.stringify({ addressType, ...addressData }),
-          status: 'approved',
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent']
-        });
-
-        // TODO: Update customer database with new address
-
-        const normalizedCustomerId = normalizePhone(customerId);
-        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
-        if (customerSocketId) {
-          io.to(customerSocketId).emit("customer:change-approved", {
-            changeType: 'address',
-            message: `Your ${addressType} address has been approved and updated successfully`,
-            addressData
-          });
-        }
-
-        console.log(`✅ ${addressType} address change approved for customer ${customerId}`);
-      } catch (error) {
-        console.error(`❌ Error approving address change:`, error);
-        socket.emit("error", { message: "Failed to approve address change" });
-      }
-    });
-
-    // Manager rejects address change
-    socket.on("manager:reject-address-change", async (data) => {
-      if (role !== "manager") return;
-
-      const { customerId, addressType, reason } = data;
-      const ChangeRequest = require("../models/ChangeRequest");
-
-      console.log(`❌ Manager ${email} rejecting ${addressType} address change for customer ${customerId}`);
-
-      try {
-        // Log the change request
-        await ChangeRequest.create({
-          customerId,
-          managerId: socket.user.id,
-          changeType: 'address',
-          newValue: JSON.stringify({ addressType }),
-          status: 'rejected',
-          rejectionReason: reason,
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent']
-        });
-
-        const normalizedCustomerId = normalizePhone(customerId);
-        const customerSocketId = activeCustomerCalls[normalizedCustomerId]?.customerSocketId;
-        if (customerSocketId) {
-          io.to(customerSocketId).emit("customer:change-rejected", {
-            changeType: 'address',
-            message: reason || `Your ${addressType} address change request was not approved`,
-            reason
-          });
-        }
-
-        console.log(`✅ ${addressType} address change rejected for customer ${normalizedCustomerId}`);
-      } catch (error) {
-        console.error(`❌ Error rejecting address change:`, error);
-        socket.emit("error", { message: "Failed to reject address change" });
-      }
-    });
+    // manager:approve-change, manager:reject-change, manager:approve-address-change,
+    // manager:reject-address-change are all handled above (merged into authoritative handlers)
     // ============ END CHANGE REQUEST EVENTS ============
 
     socket.on("disconnect", async () => {
