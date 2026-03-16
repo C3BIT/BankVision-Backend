@@ -42,6 +42,17 @@ const ChangeRequest = sequelize.define('ChangeRequest', {
     allowNull: true,
     comment: 'Reason for rejection if rejected',
   },
+  notes: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'Additional notes, e.g. manager override details',
+  },
+  method: {
+    type: DataTypes.ENUM('standard', 'manager_override'),
+    defaultValue: 'standard',
+    allowNull: false,
+    comment: 'How the change was processed: standard approval dialog, or manager OTP override',
+  },
   ipAddress: {
     type: DataTypes.STRING(45),
     allowNull: true,

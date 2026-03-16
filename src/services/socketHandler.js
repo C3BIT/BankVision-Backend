@@ -2360,6 +2360,26 @@ const handleSocketConnection = async (socket, io) => {
           });
           console.log(`✅ Notified customer ${lookupPhone} that ${changeType} change was completed by manager`);
         }
+
+        // Save audit record for manager override flow
+        try {
+          const ChangeRequest = require("../models/ChangeRequest");
+          await ChangeRequest.create({
+            customerId: lookupPhone,
+            managerId: socket.user.id,
+            changeType,
+            oldValue: currentValue || '',
+            newValue,
+            status: 'approved',
+            method: 'manager_override',
+            notes: `Manager sent OTP to new ${changeType} and verified directly on behalf of customer. No separate approval dialog required.`,
+            ipAddress: socket.handshake.address,
+            userAgent: socket.handshake.headers['user-agent'],
+          });
+          console.log(`📋 Audit record saved: manager override ${changeType} change for ${lookupPhone}`);
+        } catch (auditErr) {
+          console.error('❌ Failed to save manager override audit record:', auditErr);
+        }
       } else if (role === 'customer' && activeCall.currentManagerEmail) {
         // Customer submitted — forward to manager for acknowledgment
         const managerSocketId = getOnlineUsersWithInfo().find(

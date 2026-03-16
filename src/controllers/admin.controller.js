@@ -1492,6 +1492,7 @@ const getChangeRequests = async (req, res) => {
     const where = {};
     if (req.query.status) where.status = req.query.status;
     if (req.query.changeType) where.changeType = req.query.changeType;
+    if (req.query.method) where.method = req.query.method;
     if (req.query.customerId) where.customerId = { [Op.like]: `%${req.query.customerId}%` };
     if (req.query.managerId) where.managerId = req.query.managerId;
     if (req.query.dateFrom || req.query.dateTo) {
