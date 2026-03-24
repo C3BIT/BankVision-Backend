@@ -2700,7 +2700,7 @@ const handleSocketConnection = async (socket, io) => {
         }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
 
         // Update CBS
-        await cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID");
+        await cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID_0000000000");
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:account-activated",

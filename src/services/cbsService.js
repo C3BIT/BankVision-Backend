@@ -16,55 +16,139 @@
 
 const cbs = require("./cbsMockService");
 
+// ── Logging helper ─────────────────────────────────────────────────────────────
+// Logs every CBS API call so it is easy to audit what is sent before real
+// bank integration. Each entry shows the simulated endpoint, all arguments,
+// and the response (or any error) from the mock/real service.
+
+const cbsLog = (endpoint, args) => {
+  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log(`[CBS API CALL] ${endpoint}`);
+  console.log(`  Timestamp : ${new Date().toISOString()}`);
+  Object.entries(args).forEach(([key, val]) => {
+    console.log(`  ${key.padEnd(14)}: ${JSON.stringify(val)}`);
+  });
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+};
+
+const wrap = (endpoint, fn, argNames) =>
+  async (...args) => {
+    const namedArgs = {};
+    argNames.forEach((name, i) => { namedArgs[name] = args[i]; });
+    cbsLog(endpoint, namedArgs);
+    try {
+      const result = await fn(...args);
+      console.log(`[CBS API RESP] ${endpoint} →`, JSON.stringify(result, null, 2));
+      return result;
+    } catch (err) {
+      console.error(`[CBS API ERR ] ${endpoint} → ${err.message}`);
+      throw err;
+    }
+  };
+
+// ── Wrapped exports ────────────────────────────────────────────────────────────
+
 module.exports = {
-  // ── Customer Lookup ────────────────────────────────────────────────────────
   // Simulates: GET /cbs/api/v1/customer/lookup?phone=XXX
-  lookupCustomerByPhone:       cbs.lookupCustomerByPhone,
+  lookupCustomerByPhone: wrap(
+    "GET /cbs/api/v1/customer/lookup",
+    cbs.lookupCustomerByPhone,
+    ["phone"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/info?accountNumber=XXX
-  getCustomerByAccountNumber:  cbs.getCustomerByAccountNumber,
+  getCustomerByAccountNumber: wrap(
+    "GET /cbs/api/v1/customer/info",
+    cbs.getCustomerByAccountNumber,
+    ["accountNumber"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/accounts?phone=XXX
-  getAccountsByPhone:          cbs.getAccountsByPhone,
+  getAccountsByPhone: wrap(
+    "GET /cbs/api/v1/customer/accounts",
+    cbs.getAccountsByPhone,
+    ["phone"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/accounts/details?phone=XXX
-  getAccountsWithDetails:      cbs.getAccountsWithDetails,
+  getAccountsWithDetails: wrap(
+    "GET /cbs/api/v1/customer/accounts/details",
+    cbs.getAccountsWithDetails,
+    ["phone"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/cards?phone=XXX
-  getCardsByPhone:             cbs.getCardsByPhone,
+  getCardsByPhone: wrap(
+    "GET /cbs/api/v1/customer/cards",
+    cbs.getCardsByPhone,
+    ["phone"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/loans?phone=XXX
-  getLoansByPhone:             cbs.getLoansByPhone,
+  getLoansByPhone: wrap(
+    "GET /cbs/api/v1/customer/loans",
+    cbs.getLoansByPhone,
+    ["phone"]
+  ),
 
   // Simulates: GET /cbs/api/v1/customer/check-email?email=XXX
-  checkEmailExists:            cbs.checkEmailExists,
+  checkEmailExists: wrap(
+    "GET /cbs/api/v1/customer/check-email",
+    cbs.checkEmailExists,
+    ["email"]
+  ),
 
-  // ── OTP ───────────────────────────────────────────────────────────────────
   // Simulates: POST /cbs/api/v1/otp/request
-  requestOtp:                  cbs.requestOtp,
+  requestOtp: wrap(
+    "POST /cbs/api/v1/otp/request",
+    cbs.requestOtp,
+    ["requestType", "destination", "accountNumber"]
+  ),
 
   // Simulates: POST /cbs/api/v1/otp/verify
-  verifyOtp:                   cbs.verifyOtp,
+  verifyOtp: wrap(
+    "POST /cbs/api/v1/otp/verify",
+    cbs.verifyOtp,
+    ["requestId", "otp"]
+  ),
 
-  // ── Record Updates ────────────────────────────────────────────────────────
   // Simulates: POST /cbs/api/v1/customer/phone/update
-  updatePhone:                 cbs.updatePhone,
+  updatePhone: wrap(
+    "POST /cbs/api/v1/customer/phone/update",
+    cbs.updatePhone,
+    ["accountNumber", "requestId", "otp", "newPhone"]
+  ),
 
   // Simulates: POST /cbs/api/v1/customer/email/update
-  updateEmail:                 cbs.updateEmail,
+  updateEmail: wrap(
+    "POST /cbs/api/v1/customer/email/update",
+    cbs.updateEmail,
+    ["accountNumber", "requestId", "otp", "newEmail"]
+  ),
 
   // Simulates: POST /cbs/api/v1/customer/address/update
-  updateAddress:               cbs.updateAddress,
+  updateAddress: wrap(
+    "POST /cbs/api/v1/customer/address/update",
+    cbs.updateAddress,
+    ["accountNumber", "requestId", "otp", "newAddress"]
+  ),
 
-  // ── Account Status ────────────────────────────────────────────────────────
   // Simulates: GET /cbs/api/v1/account/status?accountNumber=XXX
-  getAccountStatus:            cbs.getAccountStatus,
+  getAccountStatus: wrap(
+    "GET /cbs/api/v1/account/status",
+    cbs.getAccountStatus,
+    ["accountNumber"]
+  ),
 
   // Simulates: POST /cbs/api/v1/account/activate
-  activateAccount:             cbs.activateAccount,
+  activateAccount: wrap(
+    "POST /cbs/api/v1/account/activate",
+    cbs.activateAccount,
+    ["accountNumber", "requestId", "otp", "nidNumber"]
+  ),
 
-  // ── Debug / Dev only ─────────────────────────────────────────────────────
-  getPendingRequest:           cbs.getPendingRequest,
+  // ── Debug / Dev only ─────────────────────────────────────────────────────────
+  getPendingRequest: cbs.getPendingRequest,
 
-  REQUEST_TYPES:               cbs.REQUEST_TYPES,
+  REQUEST_TYPES: cbs.REQUEST_TYPES,
 };
