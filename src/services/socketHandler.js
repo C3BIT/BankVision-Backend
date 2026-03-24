@@ -2364,7 +2364,15 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       if (role === 'manager' && verified) {
-        // Manager completed the change on behalf of customer — notify customer of success
+        // Echo back to this manager's socket so ChangeRequestPanel opens the approval dialog
+        socket.emit("customer:submit-change-request", {
+          changeType,
+          newValue,
+          currentValue,
+          verified: true
+        });
+
+        // Notify customer that the request is pending approval
         const customerSocketId = activeCall.customerSocketId;
         if (customerSocketId) {
           io.to(customerSocketId).emit("customer:change-request-completed", {
