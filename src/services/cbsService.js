@@ -14,13 +14,16 @@
  * Current implementation: mock (in-memory data, no real bank connection)
  */
 
+const { EventEmitter } = require("events");
 const cbs = require("./cbsMockService");
 
-// ── Logging helper ─────────────────────────────────────────────────────────────
-// Logs every CBS API call so it is easy to audit what is sent before real
-// bank integration. Each entry shows the simulated endpoint, all arguments,
-// and the response (or any error) from the mock/real service.
+// ── CBS Log Emitter ────────────────────────────────────────────────────────────
+// Socket handlers subscribe manager sockets to this emitter so every CBS
+// API call/response is forwarded to the manager's browser console in real time.
+const cbsLogEmitter = new EventEmitter();
+cbsLogEmitter.setMaxListeners(50); // allow many concurrent manager connections
 
+// ── Logging helper ─────────────────────────────────────────────────────────────
 const cbsLog = (endpoint, args) => {
   console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   console.log(`[CBS API CALL] ${endpoint}`);
@@ -36,12 +39,15 @@ const wrap = (endpoint, fn, argNames) =>
     const namedArgs = {};
     argNames.forEach((name, i) => { namedArgs[name] = args[i]; });
     cbsLog(endpoint, namedArgs);
+    cbsLogEmitter.emit("cbs:call", { endpoint, args: namedArgs, timestamp: new Date().toISOString() });
     try {
       const result = await fn(...args);
       console.log(`[CBS API RESP] ${endpoint} →`, JSON.stringify(result, null, 2));
+      cbsLogEmitter.emit("cbs:response", { endpoint, result, timestamp: new Date().toISOString() });
       return result;
     } catch (err) {
       console.error(`[CBS API ERR ] ${endpoint} → ${err.message}`);
+      cbsLogEmitter.emit("cbs:error", { endpoint, error: err.message, timestamp: new Date().toISOString() });
       throw err;
     }
   };
@@ -151,4 +157,8 @@ module.exports = {
   getPendingRequest: cbs.getPendingRequest,
 
   REQUEST_TYPES: cbs.REQUEST_TYPES,
+
+  // ── Real-time log forwarding ──────────────────────────────────────────────────
+  // Socket handlers call this to pipe CBS logs to the connected manager's browser.
+  cbsLogEmitter,
 };

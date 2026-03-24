@@ -21,6 +21,7 @@ const crypto = require("crypto");
 const callLogService = require("./callLogService");
 const customerService = require("./customerService");
 const cbsMockService = require("./cbsService");
+const { cbsLogEmitter } = require("./cbsService");
 const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
@@ -87,6 +88,19 @@ const handleSocketConnection = async (socket, io) => {
       // Update session with socket ID for managers (for force-logout feature)
       if (role === "manager" && socket.user.id) {
         updateSessionSocketId(socket.user.id, socketId);
+
+        // Forward CBS API logs to this manager's browser console in real time
+        const onCbsCall = (data) => socket.emit("debug:cbs-call", data);
+        const onCbsResponse = (data) => socket.emit("debug:cbs-response", data);
+        const onCbsError = (data) => socket.emit("debug:cbs-error", data);
+        cbsLogEmitter.on("cbs:call", onCbsCall);
+        cbsLogEmitter.on("cbs:response", onCbsResponse);
+        cbsLogEmitter.on("cbs:error", onCbsError);
+        socket.once("disconnect", () => {
+          cbsLogEmitter.off("cbs:call", onCbsCall);
+          cbsLogEmitter.off("cbs:response", onCbsResponse);
+          cbsLogEmitter.off("cbs:error", onCbsError);
+        });
       }
 
       // 🔄 SYNC ACTIVE CALL STATES: Refresh socket IDs for either role on reconnect
