@@ -21,7 +21,6 @@ const crypto = require("crypto");
 const callLogService = require("./callLogService");
 const customerService = require("./customerService");
 const cbsMockService = require("./cbsService");
-const { cbsLogEmitter } = require("./cbsService");
 const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
@@ -60,6 +59,20 @@ const handleSocketConnection = async (socket, io) => {
 
   const { role, phone, name, email, isAdmin } = socket.user;
   const socketId = socket.id;
+
+  // Direct CBS API log helper — bypasses EventEmitter, always reaches this socket
+  const emitCbsLog = async (endpoint, argMap, fn) => {
+    const ts = () => new Date().toISOString();
+    socket.emit("debug:cbs-call", { endpoint, args: argMap, timestamp: ts() });
+    try {
+      const result = await fn();
+      socket.emit("debug:cbs-response", { endpoint, result, timestamp: ts() });
+      return result;
+    } catch (err) {
+      socket.emit("debug:cbs-error", { endpoint, error: err.message, timestamp: ts() });
+      throw err;
+    }
+  };
   if (!socketId || !role) {
     console.error(`❌ Invalid socket connection: Missing required data`);
     socket.emit("error", { message: "Invalid connection data" });
@@ -89,18 +102,6 @@ const handleSocketConnection = async (socket, io) => {
       if (role === "manager" && socket.user.id) {
         updateSessionSocketId(socket.user.id, socketId);
 
-        // Forward CBS API logs to this manager's browser console in real time
-        const onCbsCall = (data) => socket.emit("debug:cbs-call", data);
-        const onCbsResponse = (data) => socket.emit("debug:cbs-response", data);
-        const onCbsError = (data) => socket.emit("debug:cbs-error", data);
-        cbsLogEmitter.on("cbs:call", onCbsCall);
-        cbsLogEmitter.on("cbs:response", onCbsResponse);
-        cbsLogEmitter.on("cbs:error", onCbsError);
-        socket.once("disconnect", () => {
-          cbsLogEmitter.off("cbs:call", onCbsCall);
-          cbsLogEmitter.off("cbs:response", onCbsResponse);
-          cbsLogEmitter.off("cbs:error", onCbsError);
-        });
       }
 
       // 🔄 SYNC ACTIVE CALL STATES: Refresh socket IDs for either role on reconnect
@@ -2533,9 +2534,17 @@ const handleSocketConnection = async (socket, io) => {
 
         // Update CBS system
         if (changeType === "phone") {
-          await cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
+          await emitCbsLog(
+            "POST /cbs/api/v1/customer/phone/update",
+            { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newPhone: newValue },
+            () => cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue)
+          );
         } else if (changeType === "email") {
-          await cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue);
+          await emitCbsLog(
+            "POST /cbs/api/v1/customer/email/update",
+            { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newEmail: newValue },
+            () => cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue)
+          );
         }
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
@@ -2630,7 +2639,11 @@ const handleSocketConnection = async (socket, io) => {
         });
 
         // Update CBS system
-        await cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType);
+        await emitCbsLog(
+          "POST /cbs/api/v1/customer/address/update",
+          { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
+          () => cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType)
+        );
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:change-approved",
@@ -2722,7 +2735,11 @@ const handleSocketConnection = async (socket, io) => {
         }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
 
         // Update CBS
-        await cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID_0000000000");
+        await emitCbsLog(
+          "POST /cbs/api/v1/account/activate",
+          { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", nidNumber: "MOCK_NID_0000000000" },
+          () => cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID_0000000000")
+        );
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
           "customer:account-activated",
