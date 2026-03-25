@@ -2516,7 +2516,8 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       try {
-        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber
+          || activeCustomerCalls[normalizedCustomerId].accountNumber;
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
         await ChangeRequest.create({
@@ -2622,7 +2623,8 @@ const handleSocketConnection = async (socket, io) => {
       }
 
       try {
-        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber;
+        const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber
+          || activeCustomerCalls[normalizedCustomerId].accountNumber;
         const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
