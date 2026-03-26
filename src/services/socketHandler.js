@@ -2519,6 +2519,15 @@ const handleSocketConnection = async (socket, io) => {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber
           || activeCustomerCalls[normalizedCustomerId].accountNumber;
 
+        // Preview payload in manager's browser immediately — before audit or CBS call
+        const cbsEndpoint = changeType === "phone"
+          ? "POST /cbs/api/v1/customer/phone/update"
+          : "POST /cbs/api/v1/customer/email/update";
+        const cbsPayload = changeType === "phone"
+          ? { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newPhone: newValue }
+          : { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newEmail: newValue };
+        socket.emit("debug:cbs-call", { endpoint: cbsEndpoint, args: cbsPayload, timestamp: new Date().toISOString() });
+
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
         await ChangeRequest.create({
           customerId,
@@ -2531,7 +2540,7 @@ const handleSocketConnection = async (socket, io) => {
           notes: `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
-        });
+        }).catch(err => console.error('⚠️ Audit save failed (non-fatal):', err.message));
 
         // Update CBS system
         if (changeType === "phone") {
@@ -2627,6 +2636,13 @@ const handleSocketConnection = async (socket, io) => {
           || activeCustomerCalls[normalizedCustomerId].accountNumber;
         const formattedAddress = `${addressData.addressLine1}, ${addressData.addressLine2 ? addressData.addressLine2 + ", " : ""}${addressData.upazila}, ${addressData.district} - ${addressData.postCode}`;
 
+        // Preview payload in manager's browser immediately
+        socket.emit("debug:cbs-call", {
+          endpoint: "POST /cbs/api/v1/customer/address/update",
+          args: { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
+          timestamp: new Date().toISOString()
+        });
+
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
         await ChangeRequest.create({
           customerId,
@@ -2638,7 +2654,7 @@ const handleSocketConnection = async (socket, io) => {
           notes: `Manager approved ${addressType} address change via approval dialog. Account: ${accountNumber || 'N/A'}. New address: ${formattedAddress}`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
-        });
+        }).catch(err => console.error('⚠️ Audit save failed (non-fatal):', err.message));
 
         // Update CBS system
         await emitCbsLog(
@@ -2723,6 +2739,13 @@ const handleSocketConnection = async (socket, io) => {
 
       const ChangeRequest = require("../models/ChangeRequest");
       try {
+        // Preview payload in manager's browser immediately
+        socket.emit("debug:cbs-call", {
+          endpoint: "POST /cbs/api/v1/account/activate",
+          args: { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", nidNumber: "MOCK_NID_0000000000" },
+          timestamp: new Date().toISOString()
+        });
+
         // Save audit record BEFORE CBS call
         await ChangeRequest.create({
           customerId: normalizedCustomerId,
