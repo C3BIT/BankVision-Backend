@@ -31,10 +31,10 @@ const handleMultipleFileUpload = async (req, res) => {
     const uploadedPaths = await Promise.all(uploadPromises);
 
     const files = req.files.map((file, index) => ({
-      originalName: file.originalname,
+      name: file.originalname,
       path: uploadedPaths[index],
       size: file.size,
-      mimeType: file.mimetype
+      type: file.mimetype
     }));
 
     res.success({ files }, "Files Uploaded Successfully.");
