@@ -2387,7 +2387,7 @@ const handleSocketConnection = async (socket, io) => {
         // Save audit record for manager override flow
         (async () => {
           try {
-            const ChangeRequest = require("../models/ChangeRequest");
+            const { ChangeRequest } = require("../models/ChangeRequest");
             await ChangeRequest.create({
               customerId: lookupPhone,
               managerId: socket.user.id,
@@ -2507,7 +2507,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { changeType, customerId, newValue, currentValue } = data;
       const normalizedCustomerId = normalizePhone(customerId);
-      const ChangeRequest = require("../models/ChangeRequest");
+      const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${changeType} change for customer ${normalizedCustomerId}: ${currentValue} → ${newValue}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2579,7 +2579,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { changeType, customerId, reason, currentValue } = data;
       const normalizedCustomerId = normalizePhone(customerId);
-      const ChangeRequest = require("../models/ChangeRequest");
+      const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`❌ Manager ${email} rejected ${changeType} change for customer ${normalizedCustomerId}: ${reason}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2623,7 +2623,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { customerId, addressType, addressData } = data;
       const normalizedCustomerId = normalizePhone(customerId);
-      const ChangeRequest = require("../models/ChangeRequest");
+      const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${addressType} address change for customer ${normalizedCustomerId}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2686,7 +2686,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { customerId, addressType, reason } = data;
       const normalizedCustomerId = normalizePhone(customerId);
-      const ChangeRequest = require("../models/ChangeRequest");
+      const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`❌ Manager ${email} rejected ${addressType} address change for customer ${normalizedCustomerId}: ${reason}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
@@ -2737,7 +2737,7 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
-      const ChangeRequest = require("../models/ChangeRequest");
+      const { ChangeRequest } = require("../models/ChangeRequest");
       try {
         // Preview payload in manager's browser immediately
         socket.emit("debug:cbs-call", {
