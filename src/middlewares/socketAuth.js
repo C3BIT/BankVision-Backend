@@ -25,6 +25,7 @@ const socketAuthMiddleware = async (socket, next) => {
         id: decoded.id,
         role: role,
         email: decoded.email,
+        phone: phoneNumber || decoded.phone || decoded.email, // For customers logging in via email, use email as phone identifier
         isAuthenticated: true,
         adminRole: decoded.role, // Original admin role (super_admin, supervisor, admin)
         isAdmin: decoded.type === 'admin',
