@@ -261,13 +261,29 @@ const getMockCustomer = (accountNumber) => {
 /**
  * Get all accounts by phone from mock CBS data
  */
-const getMockAccountsByPhone = (phone) => {
-  const accounts = MOCK_CBS_CUSTOMERS[phone] || [];
+const getMockAccountsByPhone = (phoneOrEmail) => {
+  // Direct phone lookup
+  let accounts = MOCK_CBS_CUSTOMERS[phoneOrEmail] || [];
 
-  // Also check for any updated phone numbers
+  // If no match by phone, try matching by email
+  if (accounts.length === 0 && phoneOrEmail.includes('@')) {
+    const email = phoneOrEmail.toLowerCase().trim();
+    for (const phone in MOCK_CBS_CUSTOMERS) {
+      const found = MOCK_CBS_CUSTOMERS[phone].some(
+        acc => acc.email && acc.email.toLowerCase() === email
+      );
+      if (found) {
+        accounts = MOCK_CBS_CUSTOMERS[phone];
+        break;
+      }
+    }
+  }
+
+  // Also check for any updated phone numbers or emails
   const updatedAccounts = [];
   for (const [accNum, data] of mockDataUpdates.entries()) {
-    if (data.mobileNumber === phone) {
+    if (data.mobileNumber === phoneOrEmail ||
+        (phoneOrEmail.includes('@') && data.email && data.email.toLowerCase() === phoneOrEmail.toLowerCase())) {
       updatedAccounts.push(data);
     }
   }
