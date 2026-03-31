@@ -24,7 +24,9 @@ const {
   updateManagerStatus,
   deleteManager,
   getAgentMonitorData,
-  getChangeRequests
+  getChangeRequests,
+  getSystemSettings,
+  updateSystemSetting
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
@@ -63,6 +65,10 @@ router.get('/supervisor/whisper-mode', supervisorAuthMiddleware, getWhisperMode)
 
 // Service change request audit log
 router.get('/change-requests', adminAuthenticateMiddleware, getChangeRequests);
+
+// System Settings
+router.get('/settings', adminAuthenticateMiddleware, getSystemSettings);
+router.put('/settings', adminAuthenticateMiddleware, updateSystemSetting);
 
 // Security & Audit Logs (super_admin only)
 router.get('/logs/authentication', adminAuthenticateMiddleware, getAuthenticationLogs);

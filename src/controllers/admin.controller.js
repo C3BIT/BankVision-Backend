@@ -1538,6 +1538,54 @@ const getChangeRequests = async (req, res) => {
   }
 };
 
+// ==================== SYSTEM SETTINGS ====================
+
+const { SystemSetting } = require('../models/SystemSetting');
+
+const getSystemSettings = async (req, res) => {
+  try {
+    const settings = await SystemSetting.findAll();
+    const settingsMap = {};
+    settings.forEach(s => { settingsMap[s.key] = s.value; });
+
+    res.json({
+      success: true,
+      data: settingsMap
+    });
+  } catch (error) {
+    console.error('Get System Settings Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to fetch settings' });
+  }
+};
+
+const updateSystemSetting = async (req, res) => {
+  try {
+    const { key, value } = req.body;
+
+    if (!key || value === undefined) {
+      return res.status(400).json({ success: false, message: 'Key and value are required' });
+    }
+
+    await SystemSetting.setValue(key, value);
+
+    await logAdminActivity(
+      req.admin?.id,
+      'settings_update',
+      `Updated setting: ${key} = ${value}`,
+      getClientIP(req)
+    );
+
+    res.json({
+      success: true,
+      message: `Setting "${key}" updated successfully`,
+      data: { key, value: String(value) }
+    });
+  } catch (error) {
+    console.error('Update System Setting Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to update setting' });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -1563,5 +1611,7 @@ module.exports = {
   syncRecordings,
   updateManagerStatus,
   deleteManager,
-  getAgentMonitorData
+  getAgentMonitorData,
+  getSystemSettings,
+  updateSystemSetting
 };

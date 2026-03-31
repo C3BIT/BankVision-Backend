@@ -5,10 +5,23 @@ const {
   compareFacesByOpenCV,
   checkOpenCVHealth,
 } = require("../services/faceCompareService");
+const { SystemSetting } = require("../models/SystemSetting");
 const { statusCodes } = require("../utils/statusCodes");
 
-// Face comparison provider: 'opencv' | 'aws' | 'mxface' | 'mock'
-const FACE_PROVIDER = process.env.FACE_PROVIDER || "opencv";
+// Default face provider from env
+const DEFAULT_FACE_PROVIDER = process.env.FACE_PROVIDER || "opencv";
+
+// Resolve the active provider: check DB setting first, fall back to env
+const getActiveProvider = async () => {
+  try {
+    const mockEnabled = await SystemSetting.getValue("mock_face_api", "false");
+    if (mockEnabled === "true") return "mock";
+  } catch (err) {
+    // Table might not exist yet on first boot — fall through to env default
+    console.warn("[Face] Could not read mock_face_api setting:", err.message);
+  }
+  return DEFAULT_FACE_PROVIDER;
+};
 
 const compareFacesController = async (req, res) => {
   try {
@@ -21,6 +34,7 @@ const compareFacesController = async (req, res) => {
     }
 
     let result;
+    const FACE_PROVIDER = await getActiveProvider();
 
     switch (FACE_PROVIDER) {
       case "opencv":
@@ -92,8 +106,22 @@ const compareFacesByAWSController = async (req, res) => {
       });
     }
 
+    const activeProvider = await getActiveProvider();
+
+    // Mock mode overrides everything
+    if (activeProvider === "mock") {
+      const mockSimilarity = 70 + Math.random() * 10;
+      console.log(`[MOCK] Face comparison (compare-aws): similarity=${mockSimilarity.toFixed(2)}%`);
+      return res.success({
+        imageMatched: true,
+        similarity: mockSimilarity,
+        confidence: mockSimilarity,
+        provider: "mock"
+      }, "Face Comparison Successful (Mock).");
+    }
+
     // Use OpenCV by default now
-    if (FACE_PROVIDER === "opencv") {
+    if (activeProvider === "opencv") {
       const result = await compareFacesByOpenCV(imagePath1, imagePath2);
       return res.success({
         imageMatched: result.matched,
@@ -134,9 +162,11 @@ const compareFacesByAWSController = async (req, res) => {
  */
 const faceServiceHealthController = async (req, res) => {
   try {
+    const activeProvider = await getActiveProvider();
     const health = await checkOpenCVHealth();
     res.success({
-      provider: FACE_PROVIDER,
+      provider: activeProvider,
+      mockEnabled: activeProvider === "mock",
       opencv: health,
     }, "Face service health check");
   } catch (error) {

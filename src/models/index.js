@@ -12,6 +12,7 @@ const { TransactionLog } = require('./TransactionLog');
 const { AdminActivityLog } = require('./AdminActivityLog');
 const { CallAgentReport } = require('./CallAgentReport');
 const { ChangeRequest } = require('./ChangeRequest');
+const { SystemSetting } = require('./SystemSetting');
 
 // Define associations
 CallLog.hasMany(VerificationLog, { foreignKey: 'callLogId', as: 'verifications' });
@@ -49,4 +50,5 @@ module.exports = {
   AdminActivityLog,
   CallAgentReport,
   ChangeRequest,
+  SystemSetting,
 };
