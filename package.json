@@ -17,7 +17,7 @@
     "@bull-board/api": "^5.23.0",
     "@bull-board/express": "^5.23.0",
     "aws-sdk": "^2.1693.0",
-    "axios": "^1.13.5",
+    "axios": "1.13.2",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
     "bullmq": "^5.67.3",

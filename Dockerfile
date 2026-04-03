@@ -1,11 +1,8 @@
 # Backend API Dockerfile
 # Multi-stage build for smaller image size
 
-FROM node:20-alpine AS base
+FROM node:20.20.2-alpine3.21 AS base
 WORKDIR /app
-
-# Install wget for healthcheck
-RUN apk add --no-cache wget
 
 # Copy package files
 COPY package*.json ./
@@ -20,32 +17,26 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 
 # Production stage
-FROM node:20-alpine
+FROM node:20.20.2-alpine3.21
 WORKDIR /app
 
 # Set production environment variables
 ENV NODE_ENV=production
-ENV PORT=3000
-
-# Install wget for healthcheck
-RUN apk add --no-cache wget
+ENV PORT=5094
 
 # Copy production dependencies and application
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 COPY --from=build /app/package.json ./
-# Copy .env if it exists (for variables.js to pick up other configs)
-COPY .env* ./
-
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
 # Expose port
-EXPOSE 3000
+EXPOSE 5094
 
-# Health check
+# Health check (using node instead of wget — no external packages needed)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/dev/health || exit 1
+  CMD node -e "fetch('http://localhost:5094/api/dev/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))"
 
 # Start application
 CMD ["node", "src/index.js"]
