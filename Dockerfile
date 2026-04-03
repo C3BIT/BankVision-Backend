@@ -1,7 +1,7 @@
 # Backend API Dockerfile
 # Multi-stage build for smaller image size
 
-FROM node:20.20.2-alpine3.21 AS base
+FROM node:20-alpine AS base
 WORKDIR /app
 
 # Copy package files
@@ -17,7 +17,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 
 # Production stage
-FROM node:20.20.2-alpine3.21
+FROM node:20-alpine
 WORKDIR /app
 
 # Set production environment variables
