@@ -35,8 +35,11 @@ module.exports = {
   // Storage config
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || "s3",
   MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || "http://openvidu-minio:9000",
+  MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY,
+  MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY,
   MINIO_BUCKET: process.env.MINIO_BUCKET || "vbrm",
   MINIO_PUBLIC_URL: process.env.MINIO_PUBLIC_URL,
+  MINIO_USE_SSL: process.env.MINIO_USE_SSL || "false",
 
   // DigitalOcean Spaces
   SPACES_BUCKET: process.env.SPACES_BUCKET,
