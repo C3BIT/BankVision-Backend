@@ -211,9 +211,9 @@ router.get('/:id', adminAuthenticateMiddleware, async (req, res) => {
  */
 router.get('/:id/download', async (req, res) => {
   try {
-    // Manually verify admin token — Authorization header only (no query params to avoid token logging)
+    // Manually verify admin token — Authorization header or ?token= query param (for video players)
     const jwt = require('jsonwebtoken');
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
     if (!token) {
       return res.status(401).json({ success: false, message: 'No token provided' });
     }
