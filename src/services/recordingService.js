@@ -14,7 +14,9 @@ const MINIO_BUCKET = process.env.MINIO_BUCKET;
 const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || '';
 
 // Convert WSS URL to HTTPS for API calls
+// Use LIVEKIT_API_URL if set (internal IP for server-to-server) to avoid DNS hairpin issues
 const getApiUrl = () => {
+  if (process.env.LIVEKIT_API_URL) return process.env.LIVEKIT_API_URL;
   return LIVEKIT_URL.replace('wss://', 'https://');
 };
 
