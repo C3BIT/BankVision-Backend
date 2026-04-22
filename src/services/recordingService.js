@@ -12,6 +12,8 @@ const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY;
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY;
 const MINIO_BUCKET = process.env.MINIO_BUCKET;
 const MINIO_PUBLIC_URL = process.env.MINIO_PUBLIC_URL || '';
+// Separate endpoint for egress container (may differ from backend's MinIO endpoint when on different hosts)
+const MINIO_EGRESS_ENDPOINT = process.env.MINIO_EGRESS_ENDPOINT || MINIO_ENDPOINT;
 
 // Convert WSS URL to HTTPS for API calls
 // Use LIVEKIT_API_URL if set (internal IP for server-to-server) to avoid DNS hairpin issues
@@ -52,7 +54,7 @@ const startRecording = async (roomName, options = {}) => {
       secret: MINIO_SECRET_KEY,
       bucket: MINIO_BUCKET,
       region: 'us-east-1', // MinIO doesn't care about region
-      endpoint: MINIO_ENDPOINT,
+      endpoint: MINIO_EGRESS_ENDPOINT,
       forcePathStyle: true, // Required for MinIO
     });
 
