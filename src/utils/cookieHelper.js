@@ -48,7 +48,12 @@ const getTokenFromRequest = (req) => {
     return authHeader.split(' ')[1];
   }
 
-  // 2. Try cookie
+  // 2. Try query param (for video players that can't send headers)
+  if (req.query && req.query.token) {
+    return req.query.token;
+  }
+
+  // 3. Try cookie
   if (req.cookies && req.cookies.auth_token) {
     return req.cookies.auth_token;
   }
