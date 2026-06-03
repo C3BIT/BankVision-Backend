@@ -3,6 +3,7 @@ const {
   compareFaces,
   compareFacesByAWS,
   compareFacesByOpenCV,
+  compareFacesByCBS,
   checkOpenCVHealth,
 } = require("../services/faceCompareService");
 const { SystemSetting } = require("../models/SystemSetting");
@@ -37,6 +38,24 @@ const compareFacesController = async (req, res) => {
     const FACE_PROVIDER = await getActiveProvider();
 
     switch (FACE_PROVIDER) {
+      case "cbs": {
+        // Bank holds the reference photo — only captured image + accountNo needed
+        const { imagePath2, accountNo } = req.body;
+        if (!imagePath2 || !accountNo) {
+          throw Object.assign(new Error("imagePath2 and accountNo are required for CBS face verification"), {
+            status: statusCodes.BAD_REQUEST,
+            error: { code: 40031 },
+          });
+        }
+        result = await compareFacesByCBS(accountNo, imagePath2);
+        return res.success({
+          imageMatched: result.matched,
+          similarity: result.similarity,
+          confidence: result.confidence,
+          provider: "cbs",
+        }, "Face Verification Successful (CBS).");
+      }
+
       case "opencv":
         // Use local OpenCV service
         result = await compareFacesByOpenCV(imagePath1, imagePath2);
@@ -118,6 +137,24 @@ const compareFacesByAWSController = async (req, res) => {
         confidence: mockSimilarity,
         provider: "mock"
       }, "Face Comparison Successful (Mock).");
+    }
+
+    // CBS provider
+    if (activeProvider === "cbs") {
+      const { imagePath2, accountNo } = req.body;
+      if (!imagePath2 || !accountNo) {
+        throw Object.assign(new Error("imagePath2 and accountNo are required for CBS face verification"), {
+          status: statusCodes.BAD_REQUEST,
+          error: { code: 40031 },
+        });
+      }
+      const cbsResult = await compareFacesByCBS(accountNo, imagePath2);
+      return res.success({
+        imageMatched: cbsResult.matched,
+        similarity: cbsResult.similarity,
+        confidence: cbsResult.confidence,
+        provider: "cbs",
+      }, "Face Verification Successful (CBS).");
     }
 
     // Use OpenCV by default now
