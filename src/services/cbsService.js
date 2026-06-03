@@ -15,7 +15,7 @@
  */
 
 const { EventEmitter } = require("events");
-const cbs = require("./cbsMockService");
+const cbs = require("./cbsRealService");
 
 // ── CBS Log Emitter ────────────────────────────────────────────────────────────
 // Socket handlers subscribe manager sockets to this emitter so every CBS

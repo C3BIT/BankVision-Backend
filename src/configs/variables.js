@@ -62,4 +62,22 @@ module.exports = {
   // CBS API (Production)
   CBS_API_KEY: process.env.CBS_API_KEY,
   CBS_API_URL: process.env.CBS_API_URL || "https://api.yourbank.com/v1",
+
+  // MTB CBS — core middleware base URL (all /coreMiddleware/* paths)
+  CBS_CORE_URL: process.env.CBS_CORE_URL || "http://124.109.105.40:9090",
+  CBS_CHANNEL_ID: process.env.CBS_CHANNEL_ID || "101",
+
+  // MTB CBS — UpdateCustomer (different host/port from core)
+  CBS_UPDATE_URL: process.env.CBS_UPDATE_URL ||
+    "https://124.109.105.40:9085/MTBCBSMiddleware/cbs/api/v1/UpdateCustomer/updatecustomer",
+
+  // MTB CBS — SMS gateway
+  CBS_SMS_URL: process.env.CBS_SMS_URL || "http://10.45.22.43:8000/coreMiddleware/notify/sendSMS",
+  CBS_SMS_USERNAME: process.env.CBS_SMS_USERNAME || "commonsmsuser",
+  CBS_SMS_PASSWORD: process.env.CBS_SMS_PASSWORD || "test@sms",
+  CBS_SMS_CHANNEL_ID: process.env.CBS_SMS_CHANNEL_ID || "101",
+
+  // MTB CBS — Email gateway
+  CBS_EMAIL_URL: process.env.CBS_EMAIL_URL || "http://124.109.105.40:9090/coreMiddleware/notify/sendEmail",
+  CBS_EMAIL_CHANNEL_ID: process.env.CBS_EMAIL_CHANNEL_ID || "101",
 };
