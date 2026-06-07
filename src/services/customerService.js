@@ -27,10 +27,10 @@ const getAccountsListByPhone = async (phone) => {
 };
 
 /**
- * Get customer info by account number
+ * Get customer info by account number, including cards and loans
  * @param {string} accountNumber - Customer's account number
- * @param {string} phone - Optional phone number (not used, kept for compatibility)
- * @returns {Object|null} - Customer info or null if not found
+ * @param {string} phone - Customer's phone number (used for cards/loans lookup)
+ * @returns {Object|null} - Customer info with cards and loans, or null if not found
  */
 const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
   console.log(`🔍 Fetching customer info from CBS for account: ${accountNumber}`);
@@ -43,7 +43,19 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
   }
 
   console.log(`✅ Found customer in CBS: ${customer.name}`);
-  return customer;
+
+  // Resolve phone for cards/loans lookup — prefer passed param, fallback to CBS mobile
+  const lookupPhone = phone || (customer.mobileNumber && !customer.mobileNumber.startsWith('0')
+    ? `0${customer.mobileNumber}`
+    : customer.mobileNumber);
+
+  const [cards, loans] = await Promise.all([
+    lookupPhone ? cbsMockService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
+    lookupPhone ? cbsMockService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
+  ]);
+
+  console.log(`💳 Cards: ${cards.length} | 🏦 Loans: ${loans.length}`);
+  return { ...customer, cards, loans };
 };
 
 /**
