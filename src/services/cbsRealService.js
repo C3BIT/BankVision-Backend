@@ -407,9 +407,9 @@ module.exports = {
   updatePhone,
   updateEmail,
   updateAddress,
-  // No real API yet — fall back to mock
-  getCardsByPhone: mock.getCardsByPhone,
-  getLoansByPhone: mock.getLoansByPhone,
+  // No CBS endpoint available yet — return empty until Mimic implements these
+  getCardsByPhone: async () => [],
+  getLoansByPhone: async () => [],
   checkEmailExists: mock.checkEmailExists,
   activateAccount: mock.activateAccount,
   getPendingRequest,
