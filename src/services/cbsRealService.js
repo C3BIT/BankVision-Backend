@@ -347,7 +347,9 @@ const _commitUpdate = async (accountNumber, fields) => {
   if (!detail) throw new Error("Account not found");
   const info = detail.customerFullAccountInfo || {};
   const cust = detail.customerDetailsModel || {};
-  await axios.post(CBS_UPDATE_URL, {
+
+  // Full payload — CBS requires all fields present (empty string if unused)
+  const payload = {
     userid: CBS_UPDATE_USERID,
     userpassword: CBS_UPDATE_PASSWORD,
     instnumber: CBS_INST_NUMBER,
@@ -359,12 +361,51 @@ const _commitUpdate = async (accountNumber, fields) => {
     uUIDNUM: cust.nidNum || cust.passportNum || "",
     uuidSeqNo: "0001",
     customerno: info.customerCIF,
+    p_title_code: "", p_name1: "", p_mid_name: "", p_name2: "",
+    p_father_name: "", p_mother_name: "", p_spouse_name: "",
+    p_present_add1: "", p_present_add2: "", p_present_add3: "", p_present_add4: "",
+    p_present_state_code: "", p_present_city_code: "", p_present_thana_code: "",
+    p_present_sub_office_code: "", p_present_postcode: "", p_present_phone_no_bus: "",
+    p_permanent_add1: "", p_permanent_add2: "", p_permanent_add3: "", p_permanent_add4: "",
+    p_permanent_state_code: "", p_permanent_city_code: "", p_permanent_thana_code: "",
+    p_permanent_sub_office_code: "", p_permanent_postcode: "", p_permanent_phone_no_bus: "",
+    p_mnthly_inc: "", p_nme_of_cncrn: "", p_occupation_code: "", p_marital_status: "",
+    p_passport_number: "", p_passport_issue_dt: "", p_passport_expiry_dt: "",
+    p_tin_number: "", p_present_country_code: "",
+    p_professional_add1: "", p_professional_add2: "", p_professional_add3: "", p_professional_add4: "",
+    p_professional_state_code: "", p_professional_city_code: "", p_professional_country_code: "",
+    p_professional_thana_code: "", p_professional_sub_ofc_code: "",
+    p_professional_post_code: "", p_professional_phone_no_bus: "",
+    nameasidproof: "", spousetitle: "", fathertitle: "", mothertitle: "",
+    resistatus: "", nationalitycd: "", sexcode: "", birthdate1: "",
+    employername: "", emailadd1: "",
+    presentphonenores: "", permanentphonenores: "", professionalphonenores: "",
+    nidnumber: "", nidissuedt: "", nidexpirydt: "",
+    birthcretificateno: "", birthcertificateissuedt: "", birthcertificateexpirydt: "",
+    drivinglicensenumber: "", drivingissuedt: "", drivingexpirydt: "",
+    tinissuedt: "", tin_expirydt: "", designation: "",
+    parent1: "", parent2: "", parent3: "",
+    bussectorcode: "", tradelicensenumber: "", tradelicenseissuedt: "", tradelicenseexpirydt: "",
+    vatregnumber: "", vatregissuedt: "", vatregexpirydt: "",
+    incorporationno: "", incorporationnoissuedt: "", incorporationnoexpirydt: "",
+    networth: "", fixasset: "", manpowrprmanent: "", manpowrtmporary: "",
+    countryofbirth: "", totalasset: "",
+    add1business: "", add2business: "", add3business: "", add4business: "",
+    businessphonenores: "", businessphonenobus: "",
+    p_source_of_funds: "", p_mobile_number: "",
     datafixuser: CBS_DATAFIX_USER,
     approveuser: CBS_APPROVE_USER,
     purpose: CBS_DEFAULT_PURPOSE,
     bugid: CBS_DEFAULT_BUGID,
+    status: "", message: "", apicode: "", modulename: "",
+    // caller-supplied fields overwrite the empty defaults above
     ...fields,
-  }, { timeout: 15000 });
+  };
+
+  await axios.post(CBS_UPDATE_URL, payload, {
+    timeout: 15000,
+    httpsAgent: new (require("https").Agent)({ rejectUnauthorized: false }),
+  });
 };
 
 const updatePhone = async (accountNumber, requestId, otp, newPhone) => {
