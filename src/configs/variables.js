@@ -80,4 +80,20 @@ module.exports = {
   // MTB CBS — Email gateway
   CBS_EMAIL_URL: process.env.CBS_EMAIL_URL || "http://202.59.208.111:8090/coreMiddleware/notify/sendEmail",
   CBS_EMAIL_CHANNEL_ID: process.env.CBS_EMAIL_CHANNEL_ID || "101",
+
+  // MTB CBS — UpdateCustomer auth credentials (must be set in .env)
+  CBS_UPDATE_USERID: process.env.CBS_UPDATE_USERID || "",
+  CBS_UPDATE_PASSWORD: process.env.CBS_UPDATE_PASSWORD || "",
+  CBS_INST_NUMBER: process.env.CBS_INST_NUMBER || "",
+  CBS_BRANCH_NUMBER: process.env.CBS_BRANCH_NUMBER || "",
+  CBS_TELLER_NUMBER: process.env.CBS_TELLER_NUMBER || "",
+  CBS_UUID_SOURCE: process.env.CBS_UUID_SOURCE || "SDU",
+  CBS_DATAFIX_USER: process.env.CBS_DATAFIX_USER || "",
+  CBS_APPROVE_USER: process.env.CBS_APPROVE_USER || "",
+  CBS_DEFAULT_PURPOSE: process.env.CBS_DEFAULT_PURPOSE || "",
+  CBS_DEFAULT_BUGID: process.env.CBS_DEFAULT_BUGID || "",
+
+  // MTB CBS — OMS card contact update
+  CBS_OMS_URL: process.env.CBS_OMS_URL || "http://202.59.208.111:8090/coreMiddleware/card/updateOMSCustomerEmailMobile",
+  CBS_CARD_URL: process.env.CBS_CARD_URL || "http://202.59.208.111:8090/card/getDebitCardEmailMobile",
 };

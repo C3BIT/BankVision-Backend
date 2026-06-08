@@ -10,6 +10,18 @@ const {
   CBS_EMAIL_URL,
   CBS_EMAIL_CHANNEL_ID,
   CBS_CHANNEL_ID,
+  CBS_UPDATE_USERID,
+  CBS_UPDATE_PASSWORD,
+  CBS_INST_NUMBER,
+  CBS_BRANCH_NUMBER,
+  CBS_TELLER_NUMBER,
+  CBS_UUID_SOURCE,
+  CBS_DATAFIX_USER,
+  CBS_APPROVE_USER,
+  CBS_DEFAULT_PURPOSE,
+  CBS_DEFAULT_BUGID,
+  CBS_OMS_URL,
+  CBS_CARD_URL,
 } = require("../configs/variables");
 const mock = require("./cbsMockService");
 
@@ -334,7 +346,25 @@ const _commitUpdate = async (accountNumber, fields) => {
   const detail = await _accountDetail(accountNumber);
   if (!detail) throw new Error("Account not found");
   const info = detail.customerFullAccountInfo || {};
-  await axios.post(CBS_UPDATE_URL, { customerno: info.customerCIF, ...fields }, { timeout: 10000 });
+  const cust = detail.customerDetailsModel || {};
+  await axios.post(CBS_UPDATE_URL, {
+    userid: CBS_UPDATE_USERID,
+    userpassword: CBS_UPDATE_PASSWORD,
+    instnumber: CBS_INST_NUMBER,
+    branchnumber: CBS_BRANCH_NUMBER,
+    tellernumber: CBS_TELLER_NUMBER,
+    flag4: "Y",
+    flag5: "Y",
+    uUIDSource: CBS_UUID_SOURCE,
+    uUIDNUM: cust.nidNum || cust.passportNum || "",
+    uuidSeqNo: "0001",
+    customerno: info.customerCIF,
+    datafixuser: CBS_DATAFIX_USER,
+    approveuser: CBS_APPROVE_USER,
+    purpose: CBS_DEFAULT_PURPOSE,
+    bugid: CBS_DEFAULT_BUGID,
+    ...fields,
+  }, { timeout: 15000 });
 };
 
 const updatePhone = async (accountNumber, requestId, otp, newPhone) => {
@@ -374,6 +404,39 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   return { success: true, message: "Address updated successfully in CBS", addressType };
 };
 
+// ---------------------------------------------------------------------------
+// OMS card contact update flow
+// ---------------------------------------------------------------------------
+
+const getDebitCardByAccount = async (accountNumber, cardPan) => {
+  const res = await axios.post(CBS_CARD_URL, {
+    refNo: refNo(),
+    accNo: accountNumber,
+    cardPan: cardPan || "",
+    channelId: channelId(),
+  }, { timeout: 10000 });
+  const data = res.data;
+  if (data.resCode !== "000") throw new Error(data.resMsg || "CBS card lookup failed");
+  return data.data;
+};
+
+const updateOMSContact = async ({ cardPan, messageID, cardClient, mbr, messageChannel, newAddress }) => {
+  const res = await axios.post(CBS_OMS_URL, {
+    refNo: refNo(),
+    address: newAddress,
+    cardPan,
+    messageID,
+    cardClient,
+    mbr: mbr || "0",
+    messageChannel: messageChannel || "4",
+    newAddress,
+    channelId: "121",
+  }, { timeout: 10000 });
+  const data = res.data;
+  if (data.resCode !== "000") throw new Error(data.resMsg || "CBS OMS update failed");
+  return data.data;
+};
+
 const getPendingRequest = (requestId) => {
   const request = pendingRequests.get(requestId);
   if (!request) return null;
@@ -407,10 +470,11 @@ module.exports = {
   updatePhone,
   updateEmail,
   updateAddress,
-  // No CBS endpoint available yet — return empty until Mimic implements these
   getCardsByPhone: async () => [],
   getLoansByPhone: async () => [],
   checkEmailExists: mock.checkEmailExists,
   activateAccount: mock.activateAccount,
   getPendingRequest,
+  getDebitCardByAccount,
+  updateOMSContact,
 };
