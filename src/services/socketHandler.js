@@ -20,7 +20,7 @@ const {
 const crypto = require("crypto");
 const callLogService = require("./callLogService");
 const customerService = require("./customerService");
-const cbsMockService = require("./cbsService");
+const cbsService = require("./cbsService");
 const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
@@ -194,7 +194,7 @@ const handleSocketConnection = async (socket, io) => {
       }
       if (!resolvedName || !resolvedEmail) {
         try {
-          const lookup = await cbsMockService.lookupCustomerByPhone(phone);
+          const lookup = await cbsService.lookupCustomerByPhone(phone);
           if (lookup && lookup.found) {
             if (!resolvedName) resolvedName = lookup.name || null;
             if (!resolvedEmail && lookup.email) resolvedEmail = lookup.email;
@@ -805,7 +805,7 @@ const handleSocketConnection = async (socket, io) => {
       // Get account number from CBS if possible
       let accountNumber = null;
       try {
-        const lookup = await cbsMockService.lookupCustomerByPhone(normalizedPhone);
+        const lookup = await cbsService.lookupCustomerByPhone(normalizedPhone);
         if (lookup && lookup.found) {
           accountNumber = lookup.accountNumber;
         }
@@ -2524,8 +2524,8 @@ const handleSocketConnection = async (socket, io) => {
           ? "POST /cbs/api/v1/customer/phone/update"
           : "POST /cbs/api/v1/customer/email/update";
         const cbsPayload = changeType === "phone"
-          ? { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newPhone: newValue }
-          : { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newEmail: newValue };
+          ? { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newPhone: newValue }
+          : { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newEmail: newValue };
         socket.emit("debug:cbs-call", { endpoint: cbsEndpoint, args: cbsPayload, timestamp: new Date().toISOString() });
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
@@ -2546,14 +2546,14 @@ const handleSocketConnection = async (socket, io) => {
         if (changeType === "phone") {
           await emitCbsLog(
             "POST /cbs/api/v1/customer/phone/update",
-            { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newPhone: newValue },
-            () => cbsMockService.updatePhone(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue)
+            { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newPhone: newValue },
+            () => cbsService.updatePhone(accountNumber, "MANAGER_APPROVAL", "verified", newValue)
           );
         } else if (changeType === "email") {
           await emitCbsLog(
             "POST /cbs/api/v1/customer/email/update",
-            { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newEmail: newValue },
-            () => cbsMockService.updateEmail(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", newValue)
+            { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newEmail: newValue },
+            () => cbsService.updateEmail(accountNumber, "MANAGER_APPROVAL", "verified", newValue)
           );
         }
 
@@ -2639,7 +2639,7 @@ const handleSocketConnection = async (socket, io) => {
         // Preview payload in manager's browser immediately
         socket.emit("debug:cbs-call", {
           endpoint: "POST /cbs/api/v1/customer/address/update",
-          args: { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
+          args: { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
           timestamp: new Date().toISOString()
         });
 
@@ -2659,8 +2659,8 @@ const handleSocketConnection = async (socket, io) => {
         // Update CBS system
         await emitCbsLog(
           "POST /cbs/api/v1/customer/address/update",
-          { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
-          () => cbsMockService.updateAddress(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", formattedAddress, addressType)
+          { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", newAddress: formattedAddress, addressType },
+          () => cbsService.updateAddress(accountNumber, "MANAGER_APPROVAL", "verified", formattedAddress, addressType)
         );
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
@@ -2742,7 +2742,7 @@ const handleSocketConnection = async (socket, io) => {
         // Preview payload in manager's browser immediately
         socket.emit("debug:cbs-call", {
           endpoint: "POST /cbs/api/v1/account/activate",
-          args: { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", nidNumber: "MOCK_NID_0000000000" },
+          args: { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", nidNumber: "" },
           timestamp: new Date().toISOString()
         });
 
@@ -2762,8 +2762,8 @@ const handleSocketConnection = async (socket, io) => {
         // Update CBS
         await emitCbsLog(
           "POST /cbs/api/v1/account/activate",
-          { accountNumber, requestId: "MOCK_BACKEND_APPROVAL", otp: "verified", nidNumber: "MOCK_NID_0000000000" },
-          () => cbsMockService.activateAccount(accountNumber, "MOCK_BACKEND_APPROVAL", "verified", "MOCK_NID_0000000000")
+          { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", nidNumber: "" },
+          () => cbsService.activateAccount(accountNumber, "MANAGER_APPROVAL", "verified", "")
         );
 
         io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
@@ -4425,10 +4425,10 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   }
 
   // Fetch customer info from CBS
-  const cbsMockService = require("./cbsService");
+  const cbsService = require("./cbsService");
   let customerInfo = {};
   try {
-    const cbsData = await cbsMockService.lookupCustomerByPhone(normalizedCustomerPhone);
+    const cbsData = await cbsService.lookupCustomerByPhone(normalizedCustomerPhone);
     if (cbsData.found) {
       customerInfo = {
         customerName: cbsData.name,
@@ -4739,11 +4739,11 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
   );
 
   // Fetch customer info from CBS
-  const cbsMockService = require("./cbsService");
+  const cbsService = require("./cbsService");
   let customerInfo = {};
   let accountNumber = null;
   try {
-    const cbsData = await cbsMockService.lookupCustomerByPhone(nextInQueue.customerPhone);
+    const cbsData = await cbsService.lookupCustomerByPhone(nextInQueue.customerPhone);
     if (cbsData.found) {
       customerInfo = {
         customerName: cbsData.name,

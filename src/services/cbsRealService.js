@@ -303,7 +303,7 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
 };
 
 const verifyOtp = async (requestId, otp) => {
-  if (requestId === "MOCK_BACKEND_APPROVAL")
+  if (requestId === "MANAGER_APPROVAL")
     return { verified: true, message: "OTP verified via backend approval" };
 
   const request = pendingRequests.get(requestId);

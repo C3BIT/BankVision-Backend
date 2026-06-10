@@ -1,4 +1,4 @@
-const cbsMockService = require("../services/cbsService");
+const cbsService = require("../services/cbsService");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
 
@@ -17,7 +17,7 @@ const lookupCustomer = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.lookupCustomerByPhone(phone);
+    const result = await cbsService.lookupCustomerByPhone(phone);
     res.success(result, result.found ? "Customer found" : "Customer not found");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -53,7 +53,7 @@ const requestOtp = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.requestOtp(accountNumber, type, destination, newValue);
+    const result = await cbsService.requestOtp(accountNumber, type, destination, newValue);
     res.success(result, "OTP request processed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -82,7 +82,7 @@ const verifyOtp = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.verifyOtp(requestId, otp);
+    const result = await cbsService.verifyOtp(requestId, otp);
     res.success(result, result.verified ? "OTP verified" : "OTP verification failed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -104,7 +104,7 @@ const updatePhone = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.updatePhone(accountNumber, requestId, otp, newPhone);
+    const result = await cbsService.updatePhone(accountNumber, requestId, otp, newPhone);
     res.success(result, result.success ? "Phone updated" : "Update failed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -126,7 +126,7 @@ const updateEmail = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.updateEmail(accountNumber, requestId, otp, newEmail);
+    const result = await cbsService.updateEmail(accountNumber, requestId, otp, newEmail);
     res.success(result, result.success ? "Email updated" : "Update failed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -148,7 +148,7 @@ const updateAddress = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.updateAddress(accountNumber, requestId, otp, newAddress, addressType);
+    const result = await cbsService.updateAddress(accountNumber, requestId, otp, newAddress, addressType);
     res.success(result, result.success ? "Address updated" : "Update failed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -170,7 +170,7 @@ const getAccountStatus = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.getAccountStatus(accountNumber);
+    const result = await cbsService.getAccountStatus(accountNumber);
     res.success(result, "Account status retrieved");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -192,7 +192,7 @@ const activateAccount = async (req, res) => {
       });
     }
 
-    const result = await cbsMockService.activateAccount(accountNumber, requestId, otp, nidNumber);
+    const result = await cbsService.activateAccount(accountNumber, requestId, otp, nidNumber);
     res.success(result, result.success ? "Account activated" : "Activation failed");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -214,7 +214,7 @@ const getPendingRequest = async (req, res) => {
       });
     }
 
-    const result = cbsMockService.getPendingRequest(requestId);
+    const result = cbsService.getPendingRequest(requestId);
 
     if (!result) {
       throw Object.assign(new Error("Request not found"), {
@@ -244,7 +244,7 @@ const getAccounts = async (req, res) => {
       });
     }
 
-    const accounts = await cbsMockService.getAccountsWithDetails(phone);
+    const accounts = await cbsService.getAccountsWithDetails(phone);
     res.success({ accounts }, "Accounts retrieved successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -266,7 +266,7 @@ const getCards = async (req, res) => {
       });
     }
 
-    const cards = await cbsMockService.getCardsByPhone(phone);
+    const cards = await cbsService.getCardsByPhone(phone);
     res.success({ cards }, "Cards retrieved successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -288,7 +288,7 @@ const getLoans = async (req, res) => {
       });
     }
 
-    const loans = await cbsMockService.getLoansByPhone(phone);
+    const loans = await cbsService.getLoansByPhone(phone);
     res.success({ loans }, "Loans retrieved successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);

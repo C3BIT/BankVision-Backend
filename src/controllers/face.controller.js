@@ -6,23 +6,9 @@ const {
   compareFacesByCBS,
   checkOpenCVHealth,
 } = require("../services/faceCompareService");
-const { SystemSetting } = require("../models/SystemSetting");
 const { statusCodes } = require("../utils/statusCodes");
 
-// Default face provider from env
-const DEFAULT_FACE_PROVIDER = process.env.FACE_PROVIDER || "opencv";
-
-// Resolve the active provider: check DB setting first, fall back to env
-const getActiveProvider = async () => {
-  try {
-    const mockEnabled = await SystemSetting.getValue("mock_face_api", "false");
-    if (mockEnabled === "true") return "mock";
-  } catch (err) {
-    // Table might not exist yet on first boot — fall through to env default
-    console.warn("[Face] Could not read mock_face_api setting:", err.message);
-  }
-  return DEFAULT_FACE_PROVIDER;
-};
+const getActiveProvider = () => process.env.FACE_PROVIDER || "opencv";
 
 const compareFacesController = async (req, res) => {
   try {
@@ -35,7 +21,7 @@ const compareFacesController = async (req, res) => {
     }
 
     let result;
-    const FACE_PROVIDER = await getActiveProvider();
+    const FACE_PROVIDER = getActiveProvider();
 
     switch (FACE_PROVIDER) {
       case "cbs": {
@@ -98,17 +84,14 @@ const compareFacesController = async (req, res) => {
         const imageMatched = mxResult?.matchedFaces[0]?.matchResult === 1;
         return res.success({ imageMatched, provider: "mxface" }, "Face Comparison Successful.");
 
-      case "mock":
       default:
-        // Mock mode for testing
-        const mockSimilarity = 75 + Math.random() * 20;
-        const mockMatched = mockSimilarity >= 80;
-        console.log(`[MOCK] Face comparison: similarity=${mockSimilarity.toFixed(2)}%, matched=${mockMatched}`);
+        result = await compareFacesByOpenCV(imagePath1, imagePath2);
         return res.success({
-          imageMatched: mockMatched,
-          similarity: mockSimilarity,
-          provider: "mock"
-        }, "Face Comparison Successful (Mock).");
+          imageMatched: result.matched,
+          similarity: result.similarity,
+          confidence: result.confidence,
+          provider: "opencv",
+        }, "Face Comparison Successful (OpenCV).");
     }
   } catch (err) {
     errorResponseHandler(err, req, res);

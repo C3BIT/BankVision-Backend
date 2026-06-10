@@ -5,7 +5,7 @@
  * All CBS calls go through cbsService.js — swap that file when real APIs arrive.
  */
 
-const cbsMockService = require("./cbsService"); // aliased — points to cbsRealService via cbsService
+const cbsService = require("./cbsService");
 
 /**
  * Get list of accounts by phone number
@@ -15,7 +15,7 @@ const cbsMockService = require("./cbsService"); // aliased — points to cbsReal
 const getAccountsListByPhone = async (phone) => {
   console.log(`📞 Fetching accounts from CBS for phone: ${phone}`);
 
-  const accounts = await cbsMockService.getAccountsByPhone(phone) ?? [];
+  const accounts = await cbsService.getAccountsByPhone(phone) ?? [];
 
   if (accounts.length === 0) {
     console.log(`❌ No accounts found in CBS for phone: ${phone}`);
@@ -35,7 +35,7 @@ const getAccountsListByPhone = async (phone) => {
 const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
   console.log(`🔍 Fetching customer info from CBS for account: ${accountNumber}`);
 
-  const customer = await cbsMockService.getCustomerByAccountNumber(accountNumber);
+  const customer = await cbsService.getCustomerByAccountNumber(accountNumber);
 
   if (!customer) {
     console.log(`❌ Customer not found in CBS for account: ${accountNumber}`);
@@ -50,8 +50,8 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
     : customer.mobileNumber);
 
   const [cards, loans] = await Promise.all([
-    lookupPhone ? cbsMockService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
-    lookupPhone ? cbsMockService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
+    lookupPhone ? cbsService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
+    lookupPhone ? cbsService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
   ]);
 
   console.log(`💳 Cards: ${cards.length} | 🏦 Loans: ${loans.length}`);
@@ -66,7 +66,7 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
 const getCustomerImageByPhone = async (phone) => {
   console.log(`📸 Fetching profile image from CBS for phone: ${phone}`);
 
-  const result = await cbsMockService.lookupCustomerByPhone(phone);
+  const result = await cbsService.lookupCustomerByPhone(phone);
 
   if (!result.found || !result.profileImage) {
     console.log(`❌ No profile image found in CBS for phone: ${phone}`);
@@ -128,7 +128,7 @@ const createCustomer = async (data) => {
 const checkVerificationStatus = async (phone) => {
   console.log(`🔍 Checking verification status for phone: ${phone}`);
 
-  const customer = await cbsMockService.lookupCustomerByPhone(phone);
+  const customer = await cbsService.lookupCustomerByPhone(phone);
 
   if (!customer.found) {
     console.log(`❌ Customer not found for phone: ${phone}`);
@@ -169,7 +169,7 @@ const checkVerificationStatus = async (phone) => {
 const checkEmailExists = async (email) => {
   console.log(`🔍 Checking if email exists: ${email}`);
 
-  const accounts = await cbsMockService.checkEmailExists(email) ?? [];
+  const accounts = await cbsService.checkEmailExists(email) ?? [];
 
   return accounts;
 };

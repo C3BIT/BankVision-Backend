@@ -28,10 +28,6 @@ module.exports = {
   MXFACE_KEY: process.env.MXFACE_KEY,
   MXFACE_API_URL: process.env.MXFACE_API_URL || "https://faceapi.mxface.ai/api/v3/face/",
 
-  // Mock Service Resources
-  RANDOM_USER_API_URL: process.env.RANDOM_USER_API_URL || "https://randomuser.me/api/portraits/",
-  PLACEHOLD_JP_URL: process.env.PLACEHOLD_JP_URL || "https://placehold.jp/",
-
   // Storage config
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || "s3",
   MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || "http://openvidu-minio:9000",
