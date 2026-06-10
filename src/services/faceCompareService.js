@@ -47,6 +47,14 @@ const getLocalFilePath = (url) => {
 
 const encodeImageToBase64FromUrl = async (imageUrl) => {
   try {
+    // Already base64: data URI or raw base64 JPEG/PNG
+    if (imageUrl.startsWith("data:image/")) {
+      return imageUrl.split(",")[1];
+    }
+    if (/^[A-Za-z0-9+/]{100,}={0,2}$/.test(imageUrl.slice(0, 200))) {
+      return imageUrl;
+    }
+
     // Optimization: Read directly from disk if local
     const localPath = getLocalFilePath(imageUrl);
     if (localPath) {
