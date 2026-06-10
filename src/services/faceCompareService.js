@@ -1,6 +1,6 @@
 const axios = require("axios");
 const https = require("https");
-const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_CHANNEL_ID, MINIO_ENDPOINT, MINIO_PUBLIC_URL: MINIO_PUB } = require("../configs/variables");
+const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_CHANNEL_ID, MINIO_ENDPOINT, MINIO_PUBLIC_URL: MINIO_PUB, MINIO_BUCKET } = require("../configs/variables");
 // Docker-internal services (MinIO, OpenCV, MXFace) use self-signed certs in all environments
 const internalHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 const rekognition = require("../configs/rekognition");
@@ -60,16 +60,23 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
       }
     }
 
-    // Rewrite public MinIO URL to internal endpoint so the backend can fetch directly
-    let fetchUrl = imageUrl;
+    // Fetch from MinIO using SDK credentials when URL matches MINIO_PUBLIC_URL
     const minioPublic = (MINIO_PUB || process.env.MINIO_PUBLIC_URL || "").replace(/\/$/, "");
-    const minioInternal = (MINIO_ENDPOINT || process.env.MINIO_ENDPOINT || "").replace(/\/$/, "");
-    if (minioPublic && minioInternal && fetchUrl.startsWith(minioPublic)) {
-      fetchUrl = minioInternal + fetchUrl.slice(minioPublic.length);
-      console.log(`🔄 Rewrote MinIO URL to internal: ${fetchUrl}`);
+    if (minioPublic && imageUrl.startsWith(minioPublic)) {
+      const objectPath = imageUrl.slice(minioPublic.length).replace(/^\//, "");
+      const slashIdx = objectPath.indexOf("/");
+      const bucket = slashIdx > -1 ? objectPath.slice(0, slashIdx) : (MINIO_BUCKET || process.env.MINIO_BUCKET || "vbrm");
+      const key = slashIdx > -1 ? objectPath.slice(slashIdx + 1) : objectPath;
+      console.log(`🗄️ Fetching from MinIO: bucket=${bucket} key=${key}`);
+      const { GetObjectCommand } = require("@aws-sdk/client-s3");
+      const s3Client = require("../configs/s3Client");
+      const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      const chunks = [];
+      for await (const chunk of s3Res.Body) chunks.push(chunk);
+      return Buffer.concat(chunks).toString("base64");
     }
 
-    const response = await axios.get(fetchUrl, {
+    const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
       httpsAgent: internalHttpsAgent,
       timeout: 15000,
