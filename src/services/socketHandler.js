@@ -2005,7 +2005,7 @@ const handleSocketConnection = async (socket, io) => {
       socket.emit("verification:initiated", { type: 'signature', phone: customerPhone });
     });
 
-    socket.on("customer:signature-uploaded", (data) => {
+    socket.on("customer:signature-uploaded", async (data) => {
       if (role !== "customer") return;
 
       const { signaturePath, timestamp } = data;
