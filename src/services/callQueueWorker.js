@@ -81,8 +81,8 @@ function startCallQueueWorker(io) {
       // Fetch customer info from CBS (optional)
       let customerInfo = {};
       try {
-        const cbsMockService = require('./cbsService');
-        const cbsData = await cbsMockService.lookupCustomerByPhone(customerPhone);
+        const cbsService = require('./cbsService');
+        const cbsData = await cbsService.lookupCustomerByPhone(customerPhone);
         if (cbsData.found) {
           customerInfo = {
             customerName: cbsData.name,

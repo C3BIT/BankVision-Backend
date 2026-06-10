@@ -108,19 +108,7 @@ const compareFacesByAWSController = async (req, res) => {
       });
     }
 
-    const activeProvider = await getActiveProvider();
-
-    // Mock mode overrides everything
-    if (activeProvider === "mock") {
-      const mockSimilarity = 70 + Math.random() * 10;
-      console.log(`[MOCK] Face comparison (compare-aws): similarity=${mockSimilarity.toFixed(2)}%`);
-      return res.success({
-        imageMatched: true,
-        similarity: mockSimilarity,
-        confidence: mockSimilarity,
-        provider: "mock"
-      }, "Face Comparison Successful (Mock).");
-    }
+    const activeProvider = getActiveProvider();
 
     // CBS provider
     if (activeProvider === "cbs") {
@@ -182,11 +170,10 @@ const compareFacesByAWSController = async (req, res) => {
  */
 const faceServiceHealthController = async (req, res) => {
   try {
-    const activeProvider = await getActiveProvider();
+    const activeProvider = getActiveProvider();
     const health = await checkOpenCVHealth();
     res.success({
       provider: activeProvider,
-      mockEnabled: activeProvider === "mock",
       opencv: health,
     }, "Face service health check");
   } catch (error) {
