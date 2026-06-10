@@ -1,8 +1,33 @@
 const axios = require("axios");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
-const { OPENCV_SERVICE_URL } = require("../configs/variables");
+const { OPENCV_SERVICE_URL, MINIO_PUBLIC_URL, MINIO_BUCKET } = require("../configs/variables");
 const cbsService = require("../services/cbsRealService");
+
+// Fetch image as base64 — resolves MinIO URLs via SDK to avoid public URL routing issues
+const fetchImageAsBase64 = async (imagePath) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith("data:image/")) return imagePath;
+
+    const minioPublic = (MINIO_PUBLIC_URL || "").replace(/\/$/, "");
+    if (minioPublic && imagePath.startsWith(minioPublic)) {
+        const objectPath = imagePath.slice(minioPublic.length).replace(/^\//, "");
+        const slashIdx = objectPath.indexOf("/");
+        const bucket = slashIdx > -1 ? objectPath.slice(0, slashIdx) : (MINIO_BUCKET || "vbrm");
+        const key = slashIdx > -1 ? objectPath.slice(slashIdx + 1) : objectPath;
+        const { GetObjectCommand } = require("@aws-sdk/client-s3");
+        const s3Client = require("../configs/s3Client");
+        const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        const chunks = [];
+        for await (const chunk of s3Res.Body) chunks.push(chunk);
+        const ext = key.split(".").pop().toLowerCase();
+        const mime = ext === "png" ? "image/png" : "image/jpeg";
+        return `data:${mime};base64,${Buffer.concat(chunks).toString("base64")}`;
+    }
+
+    // Already a data URI or external URL — return as-is
+    return imagePath;
+};
 
 const verifySignatureController = async (req, res) => {
     try {
@@ -41,12 +66,15 @@ const verifySignatureController = async (req, res) => {
             });
         }
 
+        // Resolve captured signature to base64 (MinIO URL → SDK fetch)
+        const capturedImage = await fetchImageAsBase64(signatureImagePath);
+
         // Compare captured signature against CBS reference via OpenCV SSIM
         const opencvRes = await axios.post(
             `${OPENCV_SERVICE_URL}/compare-images`,
             {
                 image1: `data:image/jpeg;base64,${referenceBase64}`,
-                image2: signatureImagePath.startsWith("http") ? signatureImagePath : signatureImagePath,
+                image2: capturedImage,
             },
             { timeout: 15000 }
         );
