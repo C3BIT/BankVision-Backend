@@ -137,14 +137,22 @@ const lookupCustomerByPhone = async (phone) => {
     detail = await _accountDetail(linked[0].accNo).catch(() => null);
   }
 
+  const firstAccNo = linked && linked.length > 0 ? linked[0].accNo : null;
+  const [profileImage, signatureImage] = firstAccNo
+    ? await Promise.all([
+        getCustomerPhoto(firstAccNo).catch(() => null),
+        getCustomerSignature(firstAccNo).catch(() => null),
+      ])
+    : [null, null];
+
   if (!detail) {
     return {
       found: true,
       name: customers[0].customerName,
       mobileNumber: phone,
       totalAccounts: linked ? linked.length : 0,
-      profileImage: null,
-      signatureImage: null,
+      profileImage,
+      signatureImage,
     };
   }
 
@@ -159,8 +167,8 @@ const lookupCustomerByPhone = async (phone) => {
     branch: mapped.branch,
     nidNumber: mapped.nidNumber,
     dateOfBirth: mapped.dateOfBirth,
-    profileImage: null,
-    signatureImage: null,
+    profileImage,
+    signatureImage,
     totalAccounts: linked ? linked.length : 1,
   };
 };
