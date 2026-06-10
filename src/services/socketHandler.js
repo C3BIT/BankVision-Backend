@@ -2039,11 +2039,33 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`📡 Detail: Found in online cache: ${!!targetManager}. Target Socket: ${managerSocketId}`);
 
       if (managerSocketId) {
+        // Convert MinIO URL to base64 so manager panel can display it without public URL access
+        let signatureData = signaturePath;
+        const minioPublic = (process.env.MINIO_PUBLIC_URL || "").replace(/\/$/, "");
+        if (minioPublic && signaturePath && signaturePath.startsWith(minioPublic)) {
+          try {
+            const { GetObjectCommand } = require("@aws-sdk/client-s3");
+            const s3Client = require("../configs/s3Client");
+            const objectPath = signaturePath.slice(minioPublic.length).replace(/^\//, "");
+            const slashIdx = objectPath.indexOf("/");
+            const bucket = slashIdx > -1 ? objectPath.slice(0, slashIdx) : (process.env.MINIO_BUCKET || "vbrm");
+            const key = slashIdx > -1 ? objectPath.slice(slashIdx + 1) : objectPath;
+            const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+            const chunks = [];
+            for await (const chunk of s3Res.Body) chunks.push(chunk);
+            const ext = key.split(".").pop().toLowerCase();
+            const mime = ext === "png" ? "image/png" : "image/jpeg";
+            signatureData = `data:${mime};base64,${Buffer.concat(chunks).toString("base64")}`;
+          } catch (e) {
+            console.warn(`⚠️ Could not fetch signature from MinIO, using URL: ${e.message}`);
+          }
+        }
+
         io.to(managerSocketId).emit("customer:signature-uploaded", {
           customerId: phone,
-          signaturePath,
+          signaturePath: signatureData,
           timestamp,
-          managerEmail: activeCall.currentManagerEmail // Add for verification
+          managerEmail: activeCall.currentManagerEmail
         });
         console.log(`✅ SUCCESS: Signature of customer ${phone} forwarded to manager ${activeCall.currentManagerEmail} (socket: ${managerSocketId})`);
 
