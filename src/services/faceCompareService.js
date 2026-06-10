@@ -1,6 +1,6 @@
 const axios = require("axios");
 const https = require("https");
-const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_CHANNEL_ID } = require("../configs/variables");
+const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_CHANNEL_ID, MINIO_ENDPOINT, MINIO_PUBLIC_URL: MINIO_PUB } = require("../configs/variables");
 // Docker-internal services (MinIO, OpenCV, MXFace) use self-signed certs in all environments
 const internalHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 const rekognition = require("../configs/rekognition");
@@ -34,14 +34,6 @@ const getLocalFilePath = (url) => {
     }
   }
 
-  // 2. Fallback: Robust detection for any URL containing '/uploads/' 
-  // This catches legacy host.docker.internal or other variations
-  if (url.includes("/uploads/")) {
-    const parts = url.split("/uploads/");
-    const relativePath = parts[parts.length - 1]; // Get everything after /uploads/
-    return path.resolve(__dirname, "../../uploads", relativePath);
-  }
-
   return null;
 };
 
@@ -62,30 +54,25 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
         const buffer = await fs.readFile(localPath);
         return buffer.toString("base64");
       } catch (err) {
-        if (err.code === "ENOENT") {
-          console.warn(`⚠️ Local file not found in uploads: ${localPath}. Checking mock assets fallback...`);
-          // Extract the filename from the end of the URL
-          const filename = imageUrl.split("/").pop();
-          if (filename) {
-            const mockAssetPath = path.resolve(__dirname, "../assets/mock-profiles", filename);
-            try {
-              const mockBuffer = await fs.readFile(mockAssetPath);
-              console.log(`✅ Found mock asset fallback: ${mockAssetPath}`);
-              return mockBuffer.toString("base64");
-            } catch (mockErr) {
-              console.error(`❌ Mock asset fallback also failed: ${mockAssetPath}`);
-              throw err; // Throw the original ENOENT error
-            }
-          }
-        }
-        throw err;
+        if (err.code !== "ENOENT") throw err;
+        // File not on disk — fall through to HTTP fetch below
+        console.warn(`⚠️ Local path not found (${localPath}), fetching via HTTP`);
       }
     }
 
-    const response = await axios.get(imageUrl, {
+    // Rewrite public MinIO URL to internal endpoint so the backend can fetch directly
+    let fetchUrl = imageUrl;
+    const minioPublic = (MINIO_PUB || process.env.MINIO_PUBLIC_URL || "").replace(/\/$/, "");
+    const minioInternal = (MINIO_ENDPOINT || process.env.MINIO_ENDPOINT || "").replace(/\/$/, "");
+    if (minioPublic && minioInternal && fetchUrl.startsWith(minioPublic)) {
+      fetchUrl = minioInternal + fetchUrl.slice(minioPublic.length);
+      console.log(`🔄 Rewrote MinIO URL to internal: ${fetchUrl}`);
+    }
+
+    const response = await axios.get(fetchUrl, {
       responseType: "arraybuffer",
       httpsAgent: internalHttpsAgent,
-      timeout: 15000, // 15s timeout
+      timeout: 15000,
     });
     return Buffer.from(response.data, "binary").toString("base64");
   } catch (error) {
