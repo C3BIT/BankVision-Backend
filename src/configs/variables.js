@@ -66,6 +66,8 @@ module.exports = {
   // MTB CBS — core middleware base URL (all /coreMiddleware/* paths)
   CBS_CORE_URL: process.env.CBS_CORE_URL || "http://202.59.208.111:8090",
   CBS_CHANNEL_ID: process.env.CBS_CHANNEL_ID || "101",
+  CBS_USERNAME: process.env.CBS_USERNAME || "videobanking",
+  CBS_PASSWORD: process.env.CBS_PASSWORD || "testmd5",
 
   // MTB CBS — UpdateCustomer (different host/port from core)
   CBS_UPDATE_URL: process.env.CBS_UPDATE_URL ||

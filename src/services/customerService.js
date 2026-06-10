@@ -5,7 +5,7 @@
  * All CBS calls go through cbsService.js — swap that file when real APIs arrive.
  */
 
-const cbsMockService = require("./cbsService");
+const cbsMockService = require("./cbsService"); // aliased — points to cbsRealService via cbsService
 
 /**
  * Get list of accounts by phone number
@@ -169,7 +169,7 @@ const checkVerificationStatus = async (phone) => {
 const checkEmailExists = async (email) => {
   console.log(`🔍 Checking if email exists: ${email}`);
 
-  const accounts = await cbsMockService.checkEmailExists(email);
+  const accounts = await cbsMockService.checkEmailExists(email) ?? [];
 
   return accounts;
 };

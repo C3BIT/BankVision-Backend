@@ -22,10 +22,16 @@ const {
   CBS_DEFAULT_BUGID,
   CBS_OMS_URL,
   CBS_CARD_URL,
+  CBS_USERNAME,
+  CBS_PASSWORD,
 } = require("../configs/variables");
-const mock = require("./cbsMockService");
-
-const REQUEST_TYPES = mock.REQUEST_TYPES;
+const REQUEST_TYPES = {
+  PHONE_CHANGE: "phone_change",
+  EMAIL_CHANGE: "email_change",
+  ADDRESS_CHANGE: "address_change",
+  ACCOUNT_ACTIVATION: "account_activation",
+  IDENTITY_VERIFY: "identity_verify",
+};
 
 // In-memory OTP state (same pattern as mock)
 const pendingRequests = new Map();
@@ -45,7 +51,10 @@ const channelId = () => CBS_CHANNEL_ID || "101";
 // ---------------------------------------------------------------------------
 
 const cbsPost = async (url, body) => {
-  const res = await axios.post(url, body, { timeout: 10000 });
+  const res = await axios.post(url, body, {
+    timeout: 10000,
+    auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
+  });
   const data = res.data;
   if (data.resCode !== "000") throw new Error(data.resMsg || "CBS API error");
   return data.data;
@@ -113,7 +122,7 @@ const mapLinked = (acc) => ({
 });
 
 // ---------------------------------------------------------------------------
-// Service functions (same signatures as cbsMockService)
+// Service functions
 // ---------------------------------------------------------------------------
 
 const lookupCustomerByPhone = async (phone) => {
@@ -455,7 +464,10 @@ const getDebitCardByAccount = async (accountNumber, cardPan) => {
     accNo: accountNumber,
     cardPan: cardPan || "",
     channelId: channelId(),
-  }, { timeout: 10000 });
+  }, {
+    timeout: 10000,
+    auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
+  });
   const data = res.data;
   if (data.resCode !== "000") throw new Error(data.resMsg || "CBS card lookup failed");
   return data.data;
@@ -499,6 +511,108 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// ---------------------------------------------------------------------------
+// Customer photo and signature (pending MTB API provisioning)
+// ---------------------------------------------------------------------------
+
+const getCustomerPhoto = async (accountNumber) => {
+  const data = await cbsPost(
+    `${CBS_CORE_URL}/coreMiddleware/cbs/getCustomerPhoto`,
+    { accountNo: accountNumber, refNo: refNo(), channelId: channelId() }
+  );
+  return data.imageBase64 || null;
+};
+
+const getCustomerSignature = async (accountNumber) => {
+  const data = await cbsPost(
+    `${CBS_CORE_URL}/coreMiddleware/cbs/getCustomerSignature`,
+    { accountNo: accountNumber, refNo: refNo(), channelId: channelId() }
+  );
+  return data.signatureImageBase64 || null;
+};
+
+// ---------------------------------------------------------------------------
+// Loans — derived from serCusLinkeAccInfo (moduleName: "LN")
+// ---------------------------------------------------------------------------
+
+const getLoansByPhone = async (phone) => {
+  const customers = await _findByPhone(phone);
+  if (!customers || customers.length === 0) return [];
+  const linked = await _linkedAccounts(customers[0].customerCIF).catch(() => []);
+  return (linked || [])
+    .filter((acc) => acc.moduleName === "LN")
+    .map((acc) => ({
+      number: acc.accNo,
+      type: acc.accProdName,
+      status:
+        (acc.accStatus || "").toUpperCase() === "OPEN"
+          ? "active"
+          : (acc.accStatus || "active").toLowerCase(),
+      amount: acc.currentBalance,
+      outstanding: acc.currentBalance,
+      branch: acc.homeBranch,
+    }));
+};
+
+// ---------------------------------------------------------------------------
+// Cards — via getCustomerCards (pending MTB API provisioning)
+// ---------------------------------------------------------------------------
+
+const getCardsByPhone = async (phone) => {
+  const customers = await _findByPhone(phone);
+  if (!customers || customers.length === 0) return [];
+  const cif = customers[0].customerCIF;
+  const data = await cbsPost(
+    `${CBS_CORE_URL}/coreMiddleware/card/getCustomerCards`,
+    { customerId: String(cif), refNo: refNo(), channelId: channelId() }
+  );
+  return (data || []).map((card) => ({
+    number: card.cardPan,
+    type: card.cardType,
+    category: card.cardCategory,
+    network: card.cardNetwork,
+    status: (card.status || "").toLowerCase(),
+    expiryDate: card.expiryDate,
+    linkedAccount: card.linkedAccount,
+  }));
+};
+
+// ---------------------------------------------------------------------------
+// Account activation — via setAccountActive (pending MTB API provisioning)
+// ---------------------------------------------------------------------------
+
+const activateAccount = async (accountNumber, requestId, otp, nidNumber) => {
+  const v = await verifyOtp(requestId, otp);
+  if (!v.verified) return v;
+
+  const detail = await _accountDetail(accountNumber);
+  if (!detail) throw new Error("Account not found in CBS");
+  const cust = detail.customerDetailsModel || {};
+  const info = detail.customerFullAccountInfo || {};
+
+  const storedNid = (cust.nidNum || "").replace(/\D/g, "");
+  const inputNid = (nidNumber || "").replace(/\D/g, "");
+  if (storedNid && inputNid && storedNid !== inputNid) {
+    throw new Error("NID number does not match our records");
+  }
+
+  const cif = String(info.customerCIF || "").replace(/^0+/, "") || String(info.customerCIF);
+  await cbsPost(
+    `${CBS_CORE_URL}/coreMiddleware/cbs/setAccountActive`,
+    { accountNo: accountNumber, customerId: cif, refNo: refNo(), channelId: channelId() }
+  );
+
+  pendingRequests.delete(requestId);
+  console.log(`[CBS Real] Account activated: ${accountNumber}`);
+  return {
+    success: true,
+    message: "Account activated successfully",
+    accountNumber,
+    nidVerified: true,
+    newStatus: "active",
+  };
+};
+
 module.exports = {
   REQUEST_TYPES,
   lookupCustomerByPhone,
@@ -511,10 +625,12 @@ module.exports = {
   updatePhone,
   updateEmail,
   updateAddress,
-  getCardsByPhone: async () => [],
-  getLoansByPhone: async () => [],
-  checkEmailExists: mock.checkEmailExists,
-  activateAccount: mock.activateAccount,
+  getLoansByPhone,
+  getCardsByPhone,
+  activateAccount,
+  getCustomerPhoto,
+  getCustomerSignature,
+  checkEmailExists: async () => [],
   getPendingRequest,
   getDebitCardByAccount,
   updateOMSContact,
