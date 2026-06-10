@@ -1,16 +1,8 @@
 const { otpCache } = require("../utils/otpCache");
 const { transporter } = require("../configs/mail_smtp");
-const {
-  emailHost, emailPort, emailId, emailPassword,
-  SMS_API_KEY, SMS_API_URL,
-  CBS_SMS_URL, CBS_SMS_USERNAME, CBS_SMS_PASSWORD, CBS_SMS_CHANNEL_ID,
-  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID,
-} = require("../configs/variables");
+const { emailHost, emailPort, emailId, emailPassword, SMS_API_KEY, SMS_API_URL } = require("../configs/variables");
 const { generateOTP } = require("../utils/otpCode");
 const axios = require("axios");
-
-// When CBS_SMS_URL points to the Mimic (or real MTB gateway), route through it
-const USE_CBS_NOTIFY = !!(CBS_SMS_URL && CBS_SMS_URL.includes("coreMiddleware"));
 
 const OTP_EXPIRY_TIME = 180;
 const OTP_SUBJECT = "Verification OTP Code";
@@ -50,27 +42,6 @@ const sendOTP = async (receiverEmail) => {
       error.status = 400; // Bad Request
       error.error = { code: 40014 }; // Custom error code
       throw error;
-    }
-
-    if (USE_CBS_NOTIFY) {
-      console.log(`📧 Routing email via CBS gateway: ${CBS_EMAIL_URL}`);
-      await axios.post(
-        CBS_EMAIL_URL,
-        {
-          fromEmailDisplayName: "BankVision",
-          refNo: `OTP-${Date.now()}`,
-          emailEvent: "OTP",
-          emailContent: `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`,
-          emailSubject: OTP_SUBJECT,
-          email: receiverEmail,
-          customerName: "Customer",
-          channelId: CBS_EMAIL_CHANNEL_ID || "101",
-          fromEmail: "voc@mutualtrustbank.com",
-        },
-        { timeout: 8000 }
-      );
-      console.log(`✅ CBS email OTP sent to ${otpKey}`);
-      return otp;
     }
 
     console.log(`📧 Attempting to send email OTP to ${otpKey} via ${emailHost}:${emailPort}`);
@@ -184,37 +155,30 @@ const sendtPhoneOtp = async (phone) => {
   const otp = generateOTP();
   otpCache.del(phone);
   otpCache.set(phone, otp, OTP_EXPIRY_TIME);
-  const message = `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`;
+  const message = `Your C3BIT OTP is ${otp}.`;
+  const url = `${SMS_API_URL}?api_key=${SMS_API_KEY}&msg=${encodeURIComponent(
+    message
+  )}&to=${phone}`;
 
   console.log(`📧 Phone OTP Send: phone=${phone}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
+  console.log(`📧 SMS API URL: ${url}`);
 
   try {
-    if (USE_CBS_NOTIFY) {
-      console.log(`📱 Routing SMS via CBS gateway: ${CBS_SMS_URL}`);
-      const response = await axios.post(
-        CBS_SMS_URL,
-        {
-          channelId: CBS_SMS_CHANNEL_ID || "101",
-          smsEvent: "OTP",
-          smsContent: message,
-          mobileNo: String(phone).replace(/^(\+88|88)/, ""),
-          refNo: `OTP-${Date.now()}`,
-        },
-        {
-          auth: { username: CBS_SMS_USERNAME, password: CBS_SMS_PASSWORD },
-          timeout: 8000,
-        }
-      );
-      console.log(`✅ CBS SMS response:`, response.data);
-    } else {
-      const url = `${SMS_API_URL}?api_key=${SMS_API_KEY}&msg=${encodeURIComponent(message)}&to=${phone}`;
-      console.log(`📱 Routing SMS via sms.net.bd`);
-      const response = await axios.get(url, { timeout: 30000, headers: { 'User-Agent': 'VBRM-Backend/1.0' } });
-      console.log(`✅ SMS API response:`, response.data);
-    }
+    const response = await axios.get(url, {
+      timeout: 30000, // 30 seconds timeout
+      headers: {
+        'User-Agent': 'VBRM-Backend/1.0'
+      }
+    });
+    console.log(`✅ SMS API response:`, response.data);
     return otp;
   } catch (error) {
-    console.error(`❌ SMS failed for ${phone}:`, { message: error.message, code: error.code });
+    console.error(`❌ SMS API failed for ${phone}:`, {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data
+    });
+    // Still cache the OTP even if SMS fails, for retry purposes
     console.log(`ℹ️ OTP cached despite SMS failure. OTP: ${otp}`);
     return otp;
   }
@@ -266,30 +230,22 @@ const sendExternalPhoneOtp = async (phone, externalPhone) => {
   otpCache.del(otpKey);
   otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
 
-  const message = `Your BankVision verification OTP is ${otp}. Valid for 3 minutes. Do not share.`;
+  const message = `Your C3BIT verification OTP is ${otp}. This OTP is for video banking verification.`;
+  const url = `${SMS_API_URL}?api_key=${SMS_API_KEY}&msg=${encodeURIComponent(
+    message
+  )}&to=${externalPhone}`;
 
   console.log(`📧 External Phone OTP Send: customer=${phone}, external=${externalPhone}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
   console.log(`⚠️  OTP sent to external phone - NOT visible to agent for security`);
 
   try {
-    if (USE_CBS_NOTIFY) {
-      const response = await axios.post(
-        CBS_SMS_URL,
-        {
-          channelId: CBS_SMS_CHANNEL_ID || "101",
-          smsEvent: "OTP",
-          smsContent: message,
-          mobileNo: String(externalPhone).replace(/^(\+88|88)/, ""),
-          refNo: `EXT-OTP-${Date.now()}`,
-        },
-        { auth: { username: CBS_SMS_USERNAME, password: CBS_SMS_PASSWORD }, timeout: 8000 }
-      );
-      console.log(`✅ CBS External SMS response:`, response.data);
-    } else {
-      const url = `${SMS_API_URL}?api_key=${SMS_API_KEY}&msg=${encodeURIComponent(message)}&to=${externalPhone}`;
-      const response = await axios.get(url, { timeout: 30000, headers: { 'User-Agent': 'VBRM-Backend/1.0' } });
-      console.log(`✅ External SMS API response:`, response.data);
-    }
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'VBRM-Backend/1.0'
+      }
+    });
+    console.log(`✅ External SMS API response:`, response.data);
     return otp;
   } catch (error) {
     console.error(`❌ External SMS API failed for ${externalPhone}:`, {
