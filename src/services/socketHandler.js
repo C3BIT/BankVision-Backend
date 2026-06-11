@@ -2750,59 +2750,68 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:approve-account-activation", async (data) => {
       if (role !== "manager") return;
 
-      const { customerId, accountNumber } = data;
-      const normalizedCustomerId = normalizePhone(customerId);
-      console.log(`✅ Manager ${email} approved account activation for customer ${normalizedCustomerId}`);
+      const { accountNumber } = data;
 
-      if (!activeCustomerCalls[normalizedCustomerId]) {
-        console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
+      // Use socket.user.customerPhone (set when manager joins the call) as the
+      // authoritative key — it's already normalized and guaranteed to match
+      // activeCustomerCalls. Fall back to the client-supplied customerId only if
+      // customerPhone is absent (shouldn't happen in a live call).
+      const customerPhone =
+        normalizePhone(socket.user.customerPhone) ||
+        normalizePhone(data.customerId);
+
+      console.log(`✅ Manager ${email} approving account activation for customer ${customerPhone}`);
+
+      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        console.log(`⚠️ No active call found for customer ${customerPhone}`);
+        socket.emit("account:activation-error", {
+          message: "No active call found. Please ensure the call is still connected and try again.",
+        });
         return;
       }
 
       const { ChangeRequest } = require("../models/ChangeRequest");
       try {
-        // Preview payload in manager's browser immediately
         socket.emit("debug:cbs-call", {
           endpoint: "POST /cbs/api/v1/account/activate",
           args: { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", nidNumber: "" },
           timestamp: new Date().toISOString()
         });
 
-        // Save audit record BEFORE CBS call
         await ChangeRequest.create({
-          customerId: normalizedCustomerId,
+          customerId: customerPhone,
           managerId: socket.user.id,
-          changeType: 'address', // closest available type; account activation is a separate flow
+          changeType: 'address',
           newValue: JSON.stringify({ action: 'account_activation', accountNumber }),
           status: 'approved',
           method: 'standard',
-          notes: `Manager approved dormant account activation via approval dialog. Account: ${accountNumber}.`,
+          notes: `Manager approved dormant account activation. Account: ${accountNumber}.`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
         }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
 
-        // Update CBS
         await emitCbsLog(
           "POST /cbs/api/v1/account/activate",
           { accountNumber, requestId: "MANAGER_APPROVAL", otp: "verified", nidNumber: "" },
           () => cbsService.activateAccount(accountNumber, "MANAGER_APPROVAL", "verified", "")
         );
 
-        io.to(activeCustomerCalls[normalizedCustomerId].customerSocketId).emit(
+        io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
           "customer:account-activated",
           {
             accountNumber,
-            message: "Your dormant account has been successfully activated in banking system",
+            message: "Your dormant account has been successfully activated in the banking system",
           }
         );
 
         socket.emit("manager:account-activation-success", { accountNumber });
+        console.log(`✅ Activation complete for customer ${customerPhone}`);
       } catch (cbsError) {
         console.error(`❌ CBS Activation Error:`, cbsError);
-        socket.emit("error", { message: "Failed to activate account in banking system" });
+        socket.emit("account:activation-error", {
+          message: cbsError.message || "Failed to activate account in banking system",
+        });
       }
-
-      console.log(`✅ Activation notification sent to customer ${normalizedCustomerId}`);
     });
     // ============ END CHANGE REQUEST PANEL WORKFLOW ============
 
