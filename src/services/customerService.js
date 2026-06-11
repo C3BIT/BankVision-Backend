@@ -19,11 +19,16 @@ const getAccountsListByPhone = async (phone) => {
 
   if (accounts.length === 0) {
     console.log(`❌ No accounts found in CBS for phone: ${phone}`);
-  } else {
-    console.log(`✅ Found ${accounts.length} account(s) in CBS for phone: ${phone}`);
+    return accounts;
   }
 
-  return accounts;
+  console.log(`✅ Found ${accounts.length} account(s) in CBS for phone: ${phone}`);
+
+  // Enrich accounts with profile and signature images from CBS
+  const lookup = await cbsService.lookupCustomerByPhone(phone).catch(() => ({}));
+  const { profileImage = null, signatureImage = null } = lookup;
+
+  return accounts.map(acc => ({ ...acc, profileImage, signatureImage }));
 };
 
 /**
@@ -49,13 +54,15 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
     ? `0${customer.mobileNumber}`
     : customer.mobileNumber);
 
-  const [cards, loans] = await Promise.all([
+  const [cards, loans, photo, signature] = await Promise.all([
     lookupPhone ? cbsService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
     lookupPhone ? cbsService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
+    cbsService.getCustomerPhoto(customer.accountNumber).catch(() => null),
+    cbsService.getCustomerSignature(customer.accountNumber).catch(() => null),
   ]);
 
   console.log(`💳 Cards: ${cards.length} | 🏦 Loans: ${loans.length}`);
-  return { ...customer, cards, loans };
+  return { ...customer, cards, loans, profileImage: photo, signatureImage: signature };
 };
 
 /**

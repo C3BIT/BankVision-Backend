@@ -153,6 +153,20 @@ module.exports = {
     ["accountNumber", "requestId", "otp", "nidNumber"]
   ),
 
+  // Simulates: GET /cbs/api/v1/customer/photo?accountNumber=XXX
+  getCustomerPhoto: wrap(
+    "GET /cbs/api/v1/customer/photo",
+    cbs.getCustomerPhoto,
+    ["accountNumber"]
+  ),
+
+  // Simulates: GET /cbs/api/v1/customer/signature?accountNumber=XXX
+  getCustomerSignature: wrap(
+    "GET /cbs/api/v1/customer/signature",
+    cbs.getCustomerSignature,
+    ["accountNumber"]
+  ),
+
   // ── Debug / Dev only ─────────────────────────────────────────────────────────
   getPendingRequest: cbs.getPendingRequest,
 

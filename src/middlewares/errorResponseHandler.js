@@ -142,11 +142,8 @@ const errorResponseHandler = (err, req, res, next) => {
       console.error(stringifySafe(err, null, 2));
       res.internalServerError(
         status,
-        {
-          title: errorTitle,
-          instance,
-        },
-        error
+        errorTitle,
+        { ...error, title: errorTitle, instance }
       );
   }
 };
