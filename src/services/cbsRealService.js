@@ -539,6 +539,17 @@ const getCustomerSignature = async (accountNumber) => {
   return data.signatureImageBase64 || null;
 };
 
+const getUserIdentity = async (accountNumber, imageBase64) => {
+  const data = await cbsPost(
+    `${CBS_CORE_URL}/coreMiddleware/cbs/getUserIdentity`,
+    { accountNo: accountNumber, imageBase64, refNo: refNo(), channelId: channelId() }
+  );
+  return {
+    isMatch: data.isMatch === "1",
+    score: parseFloat(data.score || "0"),
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Loans — derived from serCusLinkeAccInfo (moduleName: "LN")
 // ---------------------------------------------------------------------------
@@ -638,6 +649,7 @@ module.exports = {
   activateAccount,
   getCustomerPhoto,
   getCustomerSignature,
+  getUserIdentity,
   checkEmailExists: async () => [],
   getPendingRequest,
   getDebitCardByAccount,

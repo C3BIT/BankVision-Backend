@@ -3811,27 +3811,15 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
-      // Auto-verify face using mock service (will use OpenCV API later)
+      // Verify face via CBS getUserIdentity API
       try {
-        console.log(`🔍 Starting face verification for customer ${normalizedPhone}`);
-        // Get NID data if available for comparison
-        const nidData = activeCall.nidData || null;
+        console.log(`🔍 Starting CBS face verification for customer ${normalizedPhone}`);
+        const accountNumber = activeCall.accountNumber || null;
 
-        let verificationResult;
-        if (nidData && nidData.photo) {
-          // Compare with NID photo
-          verificationResult = await faceVerificationService.verifyFaceAgainstNID(
-            normalizedPhone,
-            imageBase64 || imagePath,
-            nidData
-          );
-        } else {
-          // Quick verification without NID reference
-          verificationResult = await faceVerificationService.quickVerifyFace(
-            normalizedPhone,
-            imageBase64 || imagePath
-          );
-        }
+        const verificationResult = await faceVerificationService.verifyFaceViaCBS(
+          accountNumber,
+          imageBase64 || imagePath
+        );
 
         console.log(`📊 Face verification result for ${normalizedPhone}:`, verificationResult);
 

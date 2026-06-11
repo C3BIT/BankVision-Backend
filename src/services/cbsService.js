@@ -167,6 +167,13 @@ module.exports = {
     ["accountNumber"]
   ),
 
+  // CBS face identity matching
+  getUserIdentity: wrap(
+    "POST /cbs/api/v1/customer/identity",
+    cbs.getUserIdentity,
+    ["accountNumber", "imageBase64"]
+  ),
+
   // ── Debug / Dev only ─────────────────────────────────────────────────────────
   getPendingRequest: cbs.getPendingRequest,
 
