@@ -12,8 +12,11 @@ const getActiveProvider = () => process.env.FACE_PROVIDER || "opencv";
 
 const compareFacesController = async (req, res) => {
   try {
-    const { imagePath1, imagePath2 } = req.body;
-    if (!imagePath1 || !imagePath2) {
+    const { imagePath1, imagePath2, accountNo } = req.body;
+    const FACE_PROVIDER = getActiveProvider();
+
+    // CBS only needs the captured image + account number (reference photo is in the bank)
+    if (FACE_PROVIDER !== "cbs" && (!imagePath1 || !imagePath2)) {
       throw Object.assign(new Error("Image File is Missing"), {
         status: statusCodes.BAD_REQUEST,
         error: { code: 40030 },
@@ -21,12 +24,9 @@ const compareFacesController = async (req, res) => {
     }
 
     let result;
-    const FACE_PROVIDER = getActiveProvider();
 
     switch (FACE_PROVIDER) {
       case "cbs": {
-        // Bank holds the reference photo — only captured image + accountNo needed
-        const { imagePath2, accountNo } = req.body;
         if (!imagePath2 || !accountNo) {
           throw Object.assign(new Error("imagePath2 and accountNo are required for CBS face verification"), {
             status: statusCodes.BAD_REQUEST,
