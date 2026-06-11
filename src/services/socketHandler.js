@@ -2795,6 +2795,8 @@ const handleSocketConnection = async (socket, io) => {
             message: "Your dormant account has been successfully activated in banking system",
           }
         );
+
+        socket.emit("manager:account-activation-success", { accountNumber });
       } catch (cbsError) {
         console.error(`❌ CBS Activation Error:`, cbsError);
         socket.emit("error", { message: "Failed to activate account in banking system" });
