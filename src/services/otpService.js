@@ -4,7 +4,7 @@ const {
   emailHost, emailPort, emailId, emailPassword,
   SMS_API_KEY, SMS_API_URL,
   CBS_SMS_URL, CBS_SMS_USERNAME, CBS_SMS_PASSWORD, CBS_SMS_CHANNEL_ID,
-  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID,
+  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID, CBS_FROM_EMAIL, CBS_FROM_EMAIL_DISPLAY_NAME,
 } = require("../configs/variables");
 const { generateOTP } = require("../utils/otpCode");
 const axios = require("axios");
@@ -57,7 +57,7 @@ const sendOTP = async (receiverEmail) => {
       await axios.post(
         CBS_EMAIL_URL,
         {
-          fromEmailDisplayName: "BankVision",
+          fromEmailDisplayName: CBS_FROM_EMAIL_DISPLAY_NAME,
           refNo: `OTP-${Date.now()}`,
           emailEvent: "OTP",
           emailContent: `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`,
@@ -65,7 +65,7 @@ const sendOTP = async (receiverEmail) => {
           email: receiverEmail,
           customerName: "Customer",
           channelId: CBS_EMAIL_CHANNEL_ID || "101",
-          fromEmail: "voc@mutualtrustbank.com",
+          fromEmail: CBS_FROM_EMAIL,
         },
         { timeout: 8000 }
       );

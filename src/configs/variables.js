@@ -1,5 +1,8 @@
 require('dotenv').config({ override: true }); // Load from .env and override process.env
 
+// Resolved before module.exports so per-API URLs can fall back to it
+const _cbsCoreUrl = process.env.CBS_CORE_URL || "http://202.59.208.111:8090";
+
 module.exports = {
   NODE_ENV: process.env.NODE_ENV || "production",
   PORT: process.env.PORT || 3000,
@@ -59,39 +62,85 @@ module.exports = {
   CBS_API_KEY: process.env.CBS_API_KEY,
   CBS_API_URL: process.env.CBS_API_URL || "https://api.yourbank.com/v1",
 
-  // MTB CBS — core middleware base URL (all /coreMiddleware/* paths)
-  CBS_CORE_URL: process.env.CBS_CORE_URL || "http://202.59.208.111:8090",
+  // MTB CBS — shared credentials & channel
+  CBS_CORE_URL: _cbsCoreUrl,
   CBS_CHANNEL_ID: process.env.CBS_CHANNEL_ID || "101",
   CBS_USERNAME: process.env.CBS_USERNAME || "videobanking",
   CBS_PASSWORD: process.env.CBS_PASSWORD || "testmd5",
 
-  // MTB CBS — UpdateCustomer (different host/port from core)
+  // MTB CBS — per-API URLs (each falls back to CBS_CORE_URL + path if not set individually)
+  // API 01 — getDetailAccountInfo
+  CBS_URL_DETAIL_ACCOUNT: process.env.CBS_URL_DETAIL_ACCOUNT ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/getDetailAccountInfo`,
+  // API 02 — serExtensiveinfobymobileno
+  CBS_URL_EXTENSIVE_INFO: process.env.CBS_URL_EXTENSIVE_INFO ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/serExtensiveinfobymobileno`,
+  // API 03 — serCusLinkeAccInfo
+  CBS_URL_LINKED_ACC: process.env.CBS_URL_LINKED_ACC ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/serCusLinkeAccInfo`,
+  // API 04 — getUserIdentity
+  CBS_URL_USER_IDENTITY: process.env.CBS_URL_USER_IDENTITY ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/getUserIdentity`,
+  // API 05 — sendEmail
+  CBS_EMAIL_URL: process.env.CBS_EMAIL_URL ||
+    `${_cbsCoreUrl}/coreMiddleware/notify/sendEmail`,
+  // API 06 — sendSMS
+  CBS_SMS_URL: process.env.CBS_SMS_URL ||
+    `${_cbsCoreUrl}/coreMiddleware/notify/sendSMS`,
+  // API 07 — getDebitCardEmailMobile
+  CBS_CARD_URL: process.env.CBS_CARD_URL ||
+    `${_cbsCoreUrl}/card/getDebitCardEmailMobile`,
+  // API 08 — updateOMSCustomerEmailMobile
+  CBS_OMS_URL: process.env.CBS_OMS_URL ||
+    `${_cbsCoreUrl}/coreMiddleware/card/updateOMSCustomerEmailMobile`,
+  // API 09 — UpdateCustomer
   CBS_UPDATE_URL: process.env.CBS_UPDATE_URL ||
-    "http://202.59.208.111:8090/MTBCBSMiddleware/cbs/api/v1/UpdateCustomer/updatecustomer",
+    `${_cbsCoreUrl}/MTBCBSMiddleware/cbs/api/v1/UpdateCustomer/updatecustomer`,
+  // API 10 — getCustomerPhoto
+  CBS_URL_CUSTOMER_PHOTO: process.env.CBS_URL_CUSTOMER_PHOTO ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/getCustomerPhoto`,
+  // API 11 — getCustomerCards
+  CBS_URL_CUSTOMER_CARDS: process.env.CBS_URL_CUSTOMER_CARDS ||
+    `${_cbsCoreUrl}/coreMiddleware/card/getCustomerCards`,
+  // API 12 — getCustomerSignature
+  CBS_URL_CUSTOMER_SIGNATURE: process.env.CBS_URL_CUSTOMER_SIGNATURE ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/getCustomerSignature`,
+  // API 13 — setAccountActive
+  CBS_URL_SET_ACCOUNT_ACTIVE: process.env.CBS_URL_SET_ACCOUNT_ACTIVE ||
+    `${_cbsCoreUrl}/coreMiddleware/cbs/setAccountActive`,
 
-  // MTB CBS — SMS gateway
-  CBS_SMS_URL: process.env.CBS_SMS_URL || "http://202.59.208.111:8090/coreMiddleware/notify/sendSMS",
+  // MTB CBS — SMS settings
   CBS_SMS_USERNAME: process.env.CBS_SMS_USERNAME || "commonsmsuser",
   CBS_SMS_PASSWORD: process.env.CBS_SMS_PASSWORD || "test@sms",
   CBS_SMS_CHANNEL_ID: process.env.CBS_SMS_CHANNEL_ID || "101",
+  CBS_SMS_EVENT: process.env.CBS_SMS_EVENT || "PIN",
 
-  // MTB CBS — Email gateway
-  CBS_EMAIL_URL: process.env.CBS_EMAIL_URL || "http://202.59.208.111:8090/coreMiddleware/notify/sendEmail",
+  // MTB CBS — Email settings
   CBS_EMAIL_CHANNEL_ID: process.env.CBS_EMAIL_CHANNEL_ID || "101",
+  CBS_FROM_EMAIL: process.env.CBS_FROM_EMAIL || "voc@mutualtrustbank.com",
+  CBS_FROM_EMAIL_DISPLAY_NAME: process.env.CBS_FROM_EMAIL_DISPLAY_NAME || "VOC",
+  CBS_EMAIL_EVENT: process.env.CBS_EMAIL_EVENT || "OTP",
+  CBS_EMAIL_SUBJECT: process.env.CBS_EMAIL_SUBJECT || "BankVision OTP Verification",
 
-  // MTB CBS — UpdateCustomer auth credentials (must be set in .env)
+  // MTB CBS — Account lookup filters
+  CBS_ACC_TYPE: process.env.CBS_ACC_TYPE || "A",
+  CBS_ACC_STATE: process.env.CBS_ACC_STATE || "O",
+
+  // MTB CBS — OMS card settings
+  CBS_OMS_CHANNEL_ID: process.env.CBS_OMS_CHANNEL_ID || "121",
+
+  // MTB CBS — UpdateCustomer auth & metadata
   CBS_UPDATE_USERID: process.env.CBS_UPDATE_USERID || "",
   CBS_UPDATE_PASSWORD: process.env.CBS_UPDATE_PASSWORD || "",
   CBS_INST_NUMBER: process.env.CBS_INST_NUMBER || "",
   CBS_BRANCH_NUMBER: process.env.CBS_BRANCH_NUMBER || "",
   CBS_TELLER_NUMBER: process.env.CBS_TELLER_NUMBER || "",
   CBS_UUID_SOURCE: process.env.CBS_UUID_SOURCE || "SDU",
+  CBS_UUID_SEQ_NO: process.env.CBS_UUID_SEQ_NO || "0001",
+  CBS_FLAG4: process.env.CBS_FLAG4 || "Y",
+  CBS_FLAG5: process.env.CBS_FLAG5 || "Y",
   CBS_DATAFIX_USER: process.env.CBS_DATAFIX_USER || "",
   CBS_APPROVE_USER: process.env.CBS_APPROVE_USER || "",
   CBS_DEFAULT_PURPOSE: process.env.CBS_DEFAULT_PURPOSE || "",
   CBS_DEFAULT_BUGID: process.env.CBS_DEFAULT_BUGID || "",
-
-  // MTB CBS — OMS card contact update
-  CBS_OMS_URL: process.env.CBS_OMS_URL || "http://202.59.208.111:8090/coreMiddleware/card/updateOMSCustomerEmailMobile",
-  CBS_CARD_URL: process.env.CBS_CARD_URL || "http://202.59.208.111:8090/card/getDebitCardEmailMobile",
 };

@@ -1,29 +1,47 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const {
-  CBS_CORE_URL,
-  CBS_UPDATE_URL,
+  CBS_CHANNEL_ID,
+  CBS_USERNAME,
+  CBS_PASSWORD,
+  CBS_URL_DETAIL_ACCOUNT,
+  CBS_URL_EXTENSIVE_INFO,
+  CBS_URL_LINKED_ACC,
+  CBS_URL_USER_IDENTITY,
+  CBS_EMAIL_URL,
   CBS_SMS_URL,
+  CBS_CARD_URL,
+  CBS_OMS_URL,
+  CBS_UPDATE_URL,
+  CBS_URL_CUSTOMER_PHOTO,
+  CBS_URL_CUSTOMER_CARDS,
+  CBS_URL_CUSTOMER_SIGNATURE,
+  CBS_URL_SET_ACCOUNT_ACTIVE,
   CBS_SMS_USERNAME,
   CBS_SMS_PASSWORD,
   CBS_SMS_CHANNEL_ID,
-  CBS_EMAIL_URL,
+  CBS_SMS_EVENT,
   CBS_EMAIL_CHANNEL_ID,
-  CBS_CHANNEL_ID,
+  CBS_FROM_EMAIL,
+  CBS_FROM_EMAIL_DISPLAY_NAME,
+  CBS_EMAIL_EVENT,
+  CBS_EMAIL_SUBJECT,
+  CBS_ACC_TYPE,
+  CBS_ACC_STATE,
+  CBS_OMS_CHANNEL_ID,
   CBS_UPDATE_USERID,
   CBS_UPDATE_PASSWORD,
   CBS_INST_NUMBER,
   CBS_BRANCH_NUMBER,
   CBS_TELLER_NUMBER,
   CBS_UUID_SOURCE,
+  CBS_UUID_SEQ_NO,
+  CBS_FLAG4,
+  CBS_FLAG5,
   CBS_DATAFIX_USER,
   CBS_APPROVE_USER,
   CBS_DEFAULT_PURPOSE,
   CBS_DEFAULT_BUGID,
-  CBS_OMS_URL,
-  CBS_CARD_URL,
-  CBS_USERNAME,
-  CBS_PASSWORD,
 } = require("../configs/variables");
 const REQUEST_TYPES = {
   PHONE_CHANGE: "phone_change",
@@ -61,23 +79,23 @@ const cbsPost = async (url, body) => {
 };
 
 const _findByPhone = (phone) =>
-  cbsPost(`${CBS_CORE_URL}/coreMiddleware/cbs/serExtensiveinfobymobileno`, {
+  cbsPost(CBS_URL_EXTENSIVE_INFO, {
     mobileNo: phone,
     refNo: refNo(),
     channelId: channelId(),
   });
 
 const _linkedAccounts = (cif) =>
-  cbsPost(`${CBS_CORE_URL}/coreMiddleware/cbs/serCusLinkeAccInfo`, {
+  cbsPost(CBS_URL_LINKED_ACC, {
     customerId: String(cif).replace(/^0+/, "") || String(cif),
-    accType: "A",
-    accState: "O",
+    accType: CBS_ACC_TYPE,
+    accState: CBS_ACC_STATE,
     refNo: refNo(),
     channelId: channelId(),
   });
 
 const _accountDetail = (accNo) =>
-  cbsPost(`${CBS_CORE_URL}/coreMiddleware/cbs/getDetailAccountInfo`, {
+  cbsPost(CBS_URL_DETAIL_ACCOUNT, {
     accNo,
     refNo: refNo(),
     channelId: channelId(),
@@ -257,7 +275,7 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
         CBS_SMS_URL,
         {
           channelId: CBS_SMS_CHANNEL_ID || "101",
-          smsEvent: "PIN",
+          smsEvent: CBS_SMS_EVENT,
           smsContent: `Your BankVision OTP is ${otp}. Valid for 5 minutes. Do not share.`,
           mobileNo: String(sendTo).replace(/^(\+88|88)/, ""),
           refNo: requestId,
@@ -273,15 +291,15 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
       .post(
         CBS_EMAIL_URL,
         {
-          fromEmailDisplayName: "BankVision",
+          fromEmailDisplayName: CBS_FROM_EMAIL_DISPLAY_NAME,
           refNo: requestId,
-          emailEvent: "OTP",
+          emailEvent: CBS_EMAIL_EVENT,
           emailContent: `Your BankVision OTP is ${otp}. Valid for 5 minutes. Do not share.`,
-          emailSubject: "BankVision OTP Verification",
+          emailSubject: CBS_EMAIL_SUBJECT,
           email: sendTo,
           customerName: info.accName || "Customer",
           channelId: CBS_EMAIL_CHANNEL_ID || "101",
-          fromEmail: "voc@mutualtrustbank.com",
+          fromEmail: CBS_FROM_EMAIL,
         },
         { timeout: 8000 }
       )
@@ -372,11 +390,11 @@ const _commitUpdate = async (accountNumber, fields) => {
     instnumber: CBS_INST_NUMBER,
     branchnumber: CBS_BRANCH_NUMBER,
     tellernumber: CBS_TELLER_NUMBER,
-    flag4: "Y",
-    flag5: "Y",
+    flag4: CBS_FLAG4,
+    flag5: CBS_FLAG5,
     uUIDSource: CBS_UUID_SOURCE,
     uUIDNUM: cust.nidNum || cust.passportNum || "",
-    uuidSeqNo: "0001",
+    uuidSeqNo: CBS_UUID_SEQ_NO,
     customerno: info.customerCIF,
     p_title_code: "", p_name1: "", p_mid_name: "", p_name2: "",
     p_father_name: "", p_mother_name: "", p_spouse_name: "",
@@ -491,7 +509,7 @@ const updateOMSContact = async ({ cardPan, messageID, cardClient, mbr, messageCh
     mbr: mbr || "0",
     messageChannel: messageChannel || "4",
     newAddress,
-    channelId: "121",
+    channelId: CBS_OMS_CHANNEL_ID,
   }, { timeout: 10000 });
   const data = res.data;
   if (data.resCode !== "000") throw new Error(data.resMsg || "CBS OMS update failed");
@@ -525,7 +543,7 @@ setInterval(() => {
 
 const getCustomerPhoto = async (accountNumber) => {
   const data = await cbsPost(
-    `${CBS_CORE_URL}/coreMiddleware/cbs/getCustomerPhoto`,
+    CBS_URL_CUSTOMER_PHOTO,
     { accountNo: accountNumber, refNo: refNo(), channelId: channelId() }
   );
   return data.imageBase64 || null;
@@ -533,7 +551,7 @@ const getCustomerPhoto = async (accountNumber) => {
 
 const getCustomerSignature = async (accountNumber) => {
   const data = await cbsPost(
-    `${CBS_CORE_URL}/coreMiddleware/cbs/getCustomerSignature`,
+    CBS_URL_CUSTOMER_SIGNATURE,
     { accountNo: accountNumber, refNo: refNo(), channelId: channelId() }
   );
   return data.signatureImageBase64 || null;
@@ -541,7 +559,7 @@ const getCustomerSignature = async (accountNumber) => {
 
 const getUserIdentity = async (accountNumber, imageBase64) => {
   const data = await cbsPost(
-    `${CBS_CORE_URL}/coreMiddleware/cbs/getUserIdentity`,
+    CBS_URL_USER_IDENTITY,
     { accountNo: accountNumber, imageBase64, refNo: refNo(), channelId: channelId() }
   );
   return {
@@ -582,7 +600,7 @@ const getCardsByPhone = async (phone) => {
   if (!customers || customers.length === 0) return [];
   const cif = customers[0].customerCIF;
   const data = await cbsPost(
-    `${CBS_CORE_URL}/coreMiddleware/card/getCustomerCards`,
+    CBS_URL_CUSTOMER_CARDS,
     { customerId: String(cif), refNo: refNo(), channelId: channelId() }
   );
   return (data || []).map((card) => ({
@@ -617,7 +635,7 @@ const activateAccount = async (accountNumber, requestId, otp, nidNumber) => {
 
   const cif = String(info.customerCIF || "").replace(/^0+/, "") || String(info.customerCIF);
   await cbsPost(
-    `${CBS_CORE_URL}/coreMiddleware/cbs/setAccountActive`,
+    CBS_URL_SET_ACCOUNT_ACTIVE,
     { accountNo: accountNumber, customerId: cif, refNo: refNo(), channelId: channelId() }
   );
 
