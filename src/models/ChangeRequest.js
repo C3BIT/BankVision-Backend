@@ -18,7 +18,7 @@ const ChangeRequest = sequelize.define('ChangeRequest', {
     comment: 'Manager who approved/rejected the request',
   },
   changeType: {
-    type: DataTypes.ENUM('phone', 'email', 'address'),
+    type: DataTypes.ENUM('phone', 'email', 'address', 'account_activation'),
     allowNull: false,
     comment: 'Type of change requested',
   },

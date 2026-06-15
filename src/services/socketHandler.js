@@ -2781,7 +2781,7 @@ const handleSocketConnection = async (socket, io) => {
         await ChangeRequest.create({
           customerId: customerPhone,
           managerId: socket.user.id,
-          changeType: 'address',
+          changeType: 'account_activation',
           newValue: JSON.stringify({ action: 'account_activation', accountNumber }),
           status: 'approved',
           method: 'standard',
@@ -2812,6 +2812,35 @@ const handleSocketConnection = async (socket, io) => {
           message: cbsError.message || "Failed to activate account in banking system",
         });
       }
+    });
+
+    // Manager rejects account activation
+    socket.on("manager:reject-account-activation", async (data) => {
+      if (role !== "manager") return;
+
+      const { accountNumber, reason } = data;
+      const customerPhone =
+        normalizePhone(socket.user.customerPhone) ||
+        normalizePhone(data.customerId);
+
+      if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+
+      const { ChangeRequest } = require("../models/ChangeRequest");
+      await ChangeRequest.create({
+        customerId: customerPhone,
+        managerId: socket.user.id,
+        changeType: 'account_activation',
+        newValue: JSON.stringify({ action: 'account_activation', accountNumber }),
+        status: 'rejected',
+        rejectionReason: reason || 'Manager rejected activation',
+        ipAddress: socket.handshake.address,
+        userAgent: socket.handshake.headers['user-agent'],
+      }).catch(err => console.error('⚠️ Audit save failed for activation rejection:', err.message));
+
+      io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
+        "customer:change-rejected",
+        { changeType: "account_activation", reason: reason || "Your account activation was not approved by the manager." }
+      );
     });
     // ============ END CHANGE REQUEST PANEL WORKFLOW ============
 
