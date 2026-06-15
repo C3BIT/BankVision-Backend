@@ -121,6 +121,69 @@ function tryParse(val) {
   try { return JSON.parse(val); } catch { return null; }
 }
 
+function fmtDate(d) {
+  const dd   = String(d.getDate()).padStart(2, '0');
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// Draw text only when value is non-empty
+function drawField(page, text, x, y, font, size = 8.5) {
+  const t = String(text || '').trim();
+  if (t) page.drawText(t, { x, y, size, font, color: rgb(0, 0, 0) });
+}
+
+// Overlay confirmed-coordinate data onto copied template pages
+function overlayTemplateData(pages, templateKey, changeType, data, parsed, font) {
+  const today  = fmtDate(new Date());
+  const acctNo = (data.accountNumber || parsed?.accountNumber || '').trim();
+  const name   = (data.customerName  || '').trim();
+  const d      = (t, x, y, sz) => drawField(pages[0], t, x, y, font, sz);
+
+  if (templateKey === 'dormant') {
+    // Dormant Account Activation Form
+    // Coordinates confirmed via test_dormant3
+    d(today,                                          462, 696);
+    d(acctNo,                                         440, 681);
+    d(name,                                           440, 663);
+    d(parsed?.dormancyReason || data.dormancyReason || '', 430, 525);
+  }
+
+  if (templateKey === 'transaction_profile') {
+    // Transaction Profile Form
+    // Coordinates confirmed via test_tp5
+    d(data.branch || '',                              100, 748);
+    d(acctNo,                                         395, 748);
+    d(name,                                           430, 692);
+    d(String(parsed?.estDepositCount  || data.estDepositCount  || ''), 320, 605);
+    d(String(parsed?.estDepositAmount || data.estDepositAmount || ''), 395, 605);
+    d(String(parsed?.estWithdrawCount  || data.estWithdrawCount  || ''), 320, 443);
+    d(String(parsed?.estWithdrawAmount || data.estWithdrawAmount || ''), 395, 443);
+  }
+
+  if (templateKey === 'static_data') {
+    // Account Services Form (page 3 of static_data_change_form.pdf)
+    // Coordinates confirmed via test_static_ymap
+    d(acctNo,  355, 733);
+    d(today,   460, 755);
+    d(name,    335, 718);
+
+    if (changeType === 'address') {
+      const newAddr = [
+        parsed?.addressLine1, parsed?.addressLine2,
+        parsed?.upazila, parsed?.district, parsed?.postCode,
+      ].filter(Boolean).join(', ');
+      d(data.oldValue || '',  130, 640);
+      d(newAddr,              130, 595);
+    } else if (changeType === 'phone') {
+      d(data.newValue || '', 95, 536);
+    } else if (changeType === 'email') {
+      d(data.newValue || '', 400, 536);
+    }
+  }
+}
+
 async function uploadToStorage(pdfBytes, key) {
   if (STORAGE_PROVIDER === 'local') {
     const uploadDir = path.resolve(__dirname, '../../uploads/forms');
@@ -222,7 +285,9 @@ async function generateFormPDF(changeType, data) {
       ? [Math.min(STATIC_DATA_PAGE_INDEX, templateDoc.getPageCount() - 1)]
       : Array.from({ length: templateDoc.getPageCount() }, (_, i) => i);
 
-    const copied = await outDoc.copyPages(templateDoc, pageIndices);
+    const copied  = await outDoc.copyPages(templateDoc, pageIndices);
+    const outFont = await outDoc.embedFont(StandardFonts.Helvetica);
+    overlayTemplateData(copied, key, changeType, data, parsed, outFont);
     copied.forEach(p => outDoc.addPage(p));
 
     const pdfBytes  = await outDoc.save();
