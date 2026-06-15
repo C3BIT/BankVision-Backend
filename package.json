@@ -39,6 +39,7 @@
     "nodemailer": "6.10.1",
     "nodemailer-express-handlebars": "6.1.2",
     "nodemon": "3.1.9",
+    "pdf-lib": "^1.17.1",
     "sequelize": "6.37.7",
     "socket.io": "4.8.1",
     "uuid": "11.1.0",

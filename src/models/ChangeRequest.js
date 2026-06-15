@@ -53,6 +53,11 @@ const ChangeRequest = sequelize.define('ChangeRequest', {
     allowNull: false,
     comment: 'How the change was processed: standard approval dialog, or manager OTP override',
   },
+  pdfUrls: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'JSON array of generated PDF form URLs attached to this record',
+  },
   ipAddress: {
     type: DataTypes.STRING(45),
     allowNull: true,

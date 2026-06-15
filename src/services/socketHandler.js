@@ -25,6 +25,7 @@ const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
 const OTP = require("./otpService");
+const { generateFormPDF } = require("./pdfFormService");
 
 const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN;
 const CALL_TIMEOUT = 20000; // 20 seconds - banking industry standard
@@ -2569,7 +2570,7 @@ const handleSocketConnection = async (socket, io) => {
         socket.emit("debug:cbs-call", { endpoint: cbsEndpoint, args: cbsPayload, timestamp: new Date().toISOString() });
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
-        await ChangeRequest.create({
+        const crPhoneEmail = await ChangeRequest.create({
           customerId,
           managerId: socket.user.id,
           changeType,
@@ -2580,7 +2581,23 @@ const handleSocketConnection = async (socket, io) => {
           notes: `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
-        }).catch(err => console.error('⚠️ Audit save failed (non-fatal):', err.message));
+        }).catch(err => { console.error('⚠️ Audit save failed (non-fatal):', err.message); return null; });
+
+        // Generate and attach PDF form (non-blocking)
+        if (crPhoneEmail) {
+          generateFormPDF(changeType, {
+            customerId,
+            accountNumber,
+            oldValue: currentValue || '',
+            newValue,
+            managerName:  socket.user.name  || email,
+            managerEmail: email,
+          }).then(urls => {
+            if (urls.length > 0) {
+              crPhoneEmail.update({ pdfUrls: JSON.stringify(urls) }).catch(() => {});
+            }
+          }).catch(err => console.error('⚠️ PDF generation failed:', err.message));
+        }
 
         // Update CBS system
         if (changeType === "phone") {
@@ -2661,7 +2678,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:approve-address-change", async (data) => {
       if (role !== "manager") return;
 
-      const { customerId, addressType, addressData } = data;
+      const { customerId, addressType, addressData, oldAddress } = data;
       const normalizedCustomerId = normalizePhone(customerId);
       const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${addressType} address change for customer ${normalizedCustomerId}`);
@@ -2684,17 +2701,34 @@ const handleSocketConnection = async (socket, io) => {
         });
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
-        await ChangeRequest.create({
+        const crAddress = await ChangeRequest.create({
           customerId,
           managerId: socket.user.id,
           changeType: 'address',
+          oldValue: oldAddress || '',
           newValue: JSON.stringify({ addressType, ...addressData }),
           status: 'approved',
           method: 'standard',
           notes: `Manager approved ${addressType} address change via approval dialog. Account: ${accountNumber || 'N/A'}. New address: ${formattedAddress}`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
-        }).catch(err => console.error('⚠️ Audit save failed (non-fatal):', err.message));
+        }).catch(err => { console.error('⚠️ Audit save failed (non-fatal):', err.message); return null; });
+
+        // Generate and attach PDF form (non-blocking)
+        if (crAddress) {
+          generateFormPDF('address', {
+            customerId,
+            accountNumber,
+            oldValue: oldAddress || '',
+            newValue: JSON.stringify({ addressType, ...addressData }),
+            managerName:  socket.user.name  || email,
+            managerEmail: email,
+          }).then(urls => {
+            if (urls.length > 0) {
+              crAddress.update({ pdfUrls: JSON.stringify(urls) }).catch(() => {});
+            }
+          }).catch(err => console.error('⚠️ PDF generation failed:', err.message));
+        }
 
         // Update CBS system
         await emitCbsLog(
@@ -2803,25 +2837,45 @@ const handleSocketConnection = async (socket, io) => {
           dormancyReason,
         } = { ...extraFields, ...data };
 
-        await ChangeRequest.create({
+        const activationNewValue = JSON.stringify({
+          action: 'account_activation',
+          accountNumber,
+          estDepositCount:   estDepositCount   || null,
+          estDepositAmount:  estDepositAmount  || null,
+          estWithdrawCount:  estWithdrawCount  || null,
+          estWithdrawAmount: estWithdrawAmount || null,
+          dormancyReason:    dormancyReason    || null,
+        });
+
+        const crActivation = await ChangeRequest.create({
           customerId: customerPhone,
           managerId: socket.user.id,
           changeType: 'account_activation',
-          newValue: JSON.stringify({
-            action: 'account_activation',
-            accountNumber,
-            estDepositCount:   estDepositCount   || null,
-            estDepositAmount:  estDepositAmount  || null,
-            estWithdrawCount:  estWithdrawCount  || null,
-            estWithdrawAmount: estWithdrawAmount || null,
-            dormancyReason:    dormancyReason    || null,
-          }),
+          newValue: activationNewValue,
           status: 'approved',
           method: 'standard',
           notes: `Manager approved dormant account activation. Account: ${accountNumber}. Deposits: ${estDepositCount || '?'}x BDT ${estDepositAmount || '?'}/mo. Withdrawals: ${estWithdrawCount || '?'}x BDT ${estWithdrawAmount || '?'}/mo. Reason: ${dormancyReason || 'not provided'}.`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
-        }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
+        }).catch(err => { console.error('⚠️ Audit save failed for account activation:', err.message); return null; });
+
+        // Generate and attach both PDF forms (non-blocking)
+        if (crActivation) {
+          generateFormPDF('account_activation', {
+            customerId:       customerPhone,
+            accountNumber,
+            newValue:         activationNewValue,
+            estDepositCount,  estDepositAmount,
+            estWithdrawCount, estWithdrawAmount,
+            dormancyReason,
+            managerName:  socket.user.name  || email,
+            managerEmail: email,
+          }).then(urls => {
+            if (urls.length > 0) {
+              crActivation.update({ pdfUrls: JSON.stringify(urls) }).catch(() => {});
+            }
+          }).catch(err => console.error('⚠️ PDF generation failed:', err.message));
+        }
 
         await emitCbsLog(
           "POST /cbs/api/v1/account/activate",

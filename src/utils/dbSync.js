@@ -49,6 +49,35 @@ const ensureColumnsExist = async (sequelize, modelName) => {
 };
 
 /**
+ * Ensures an ENUM column contains all required values.
+ * Sequelize sync() never ALTERs existing ENUM definitions, so new values must be added manually.
+ */
+const ensureEnumValues = async (sequelize, tableName, columnName, requiredValues) => {
+    try {
+        const [[row]] = await sequelize.query(
+            `SHOW COLUMNS FROM \`${tableName}\` LIKE '${columnName}'`
+        );
+        if (!row) return;
+
+        // Extract current enum values: enum('a','b','c') → ['a','b','c']
+        const match = row.Type.match(/^enum\((.+)\)$/i);
+        if (!match) return;
+        const current = match[1].replace(/'/g, '').split(',');
+
+        const missing = requiredValues.filter(v => !current.includes(v));
+        if (missing.length === 0) return;
+
+        const allValues = [...current, ...missing].map(v => `'${v}'`).join(',');
+        await sequelize.query(
+            `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ENUM(${allValues}) NOT NULL`
+        );
+        console.log(`✅ ENUM \`${tableName}\`.\`${columnName}\` extended with: ${missing.join(', ')}`);
+    } catch (error) {
+        console.error(`❌ Error syncing ENUM ${tableName}.${columnName}:`, error.message);
+    }
+};
+
+/**
  * Syncs columns for all critical models
  * @param {Object} sequelize - The sequelize instance
  */
@@ -71,10 +100,15 @@ const syncAllCriticalModels = async (sequelize) => {
         await ensureColumnsExist(sequelize, modelName);
     }
 
+    // Ensure ENUM values are up to date (sync() never alters existing ENUMs)
+    await ensureEnumValues(sequelize, 'change_requests', 'changeType',
+        ['phone', 'email', 'address', 'account_activation']);
+
     console.log('✅ Safety schema synchronization completed.');
 };
 
 module.exports = {
     ensureColumnsExist,
+    ensureEnumValues,
     syncAllCriticalModels
 };

@@ -474,8 +474,9 @@ const updateEmail = async (accountNumber, requestId, otp, newEmail) => {
 const updateAddress = async (accountNumber, requestId, otp, newAddress, addressType = "present") => {
   const v = await verifyOtp(requestId, otp);
   if (!v.verified) return v;
-  const fields = { p_present_add1: newAddress };
-  if (addressType === "permanent") fields.p_permanent_add1 = newAddress;
+  const fields = addressType === "permanent"
+    ? { p_permanent_add1: newAddress }
+    : { p_present_add1: newAddress };
   await _commitUpdate(accountNumber, fields);
   pendingRequests.delete(requestId);
   console.log(`[CBS Real] Address updated for ${accountNumber}`);
