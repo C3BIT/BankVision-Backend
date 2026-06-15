@@ -1583,6 +1583,24 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
+    // Customer extra compliance fields for dormant activation — relay to manager
+    socket.on("customer:dormant-extra-fields", (data) => {
+      if (role !== "customer") return;
+      const normalizedPhone = normalizePhone(phone);
+      if (!activeCustomerCalls[normalizedPhone]) return;
+
+      const managerSocketId = getOnlineUsersWithInfo().find(
+        (u) => u.email === activeCustomerCalls[normalizedPhone].currentManagerEmail
+      )?.socketId;
+
+      if (managerSocketId) {
+        io.to(managerSocketId).emit("customer:dormant-extra-fields", data);
+      }
+
+      // Cache on the active call so the approve handler can use it
+      activeCustomerCalls[normalizedPhone].dormantExtraFields = data;
+    });
+
     // Manager typing account number (new field) - relay to customer
     socket.on("manager:typing-account-number-new", (data) => {
       if (role !== "manager") return;
@@ -2778,14 +2796,29 @@ const handleSocketConnection = async (socket, io) => {
           timestamp: new Date().toISOString()
         });
 
+        const extraFields = activeCustomerCalls[customerPhone]?.dormantExtraFields || {};
+        const {
+          estDepositCount, estDepositAmount,
+          estWithdrawCount, estWithdrawAmount,
+          dormancyReason,
+        } = { ...extraFields, ...data };
+
         await ChangeRequest.create({
           customerId: customerPhone,
           managerId: socket.user.id,
           changeType: 'account_activation',
-          newValue: JSON.stringify({ action: 'account_activation', accountNumber }),
+          newValue: JSON.stringify({
+            action: 'account_activation',
+            accountNumber,
+            estDepositCount:   estDepositCount   || null,
+            estDepositAmount:  estDepositAmount  || null,
+            estWithdrawCount:  estWithdrawCount  || null,
+            estWithdrawAmount: estWithdrawAmount || null,
+            dormancyReason:    dormancyReason    || null,
+          }),
           status: 'approved',
           method: 'standard',
-          notes: `Manager approved dormant account activation. Account: ${accountNumber}.`,
+          notes: `Manager approved dormant account activation. Account: ${accountNumber}. Deposits: ${estDepositCount || '?'}x BDT ${estDepositAmount || '?'}/mo. Withdrawals: ${estWithdrawCount || '?'}x BDT ${estWithdrawAmount || '?'}/mo. Reason: ${dormancyReason || 'not provided'}.`,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
         }).catch(err => console.error('⚠️ Audit save failed for account activation:', err.message));
