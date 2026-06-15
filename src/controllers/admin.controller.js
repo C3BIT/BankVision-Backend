@@ -463,6 +463,7 @@ const resetManagerPassword = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     manager.password = hashedPassword;
+    manager.passwordChangedAt = new Date();
     await manager.save();
 
     res.json({
