@@ -147,7 +147,7 @@ function overlayTemplateData(pages, templateKey, changeType, data, parsed, font)
     d(today,                                          462, 696);
     d(acctNo,                                         440, 681);
     d(name,                                           440, 663);
-    d(parsed?.dormancyReason || data.dormancyReason || '', 430, 525);
+    d(parsed?.dormancyReason || data.dormancyReason || '', 215, 515);
   }
 
   if (templateKey === 'transaction_profile') {
@@ -174,8 +174,8 @@ function overlayTemplateData(pages, templateKey, changeType, data, parsed, font)
         parsed?.addressLine1, parsed?.addressLine2,
         parsed?.upazila, parsed?.district, parsed?.postCode,
       ].filter(Boolean).join(', ');
-      d(data.oldValue || '',  130, 640);
-      d(newAddr,              130, 595);
+      d(data.oldValue || '',  130, 597);
+      d(newAddr,              130, 562);
     } else if (changeType === 'phone') {
       d(data.newValue || '', 95, 536);
     } else if (changeType === 'email') {
