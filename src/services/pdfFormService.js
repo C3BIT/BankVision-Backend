@@ -129,9 +129,29 @@ function fmtDate(d) {
 }
 
 // Draw text only when value is non-empty
-function drawField(page, text, x, y, font, size = 8.5) {
+function drawField(page, text, x, y, font, size = 11) {
   const t = String(text || '').trim();
   if (t) page.drawText(t, { x, y, size, font, color: rgb(0, 0, 0) });
+}
+
+// Wrap long text into lines of at most maxChars characters
+function wrapText(text, maxChars = 55) {
+  const str = String(text || '').trim();
+  if (str.length <= maxChars) return [str];
+  const words = str.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 // Overlay confirmed-coordinate data onto copied template pages
@@ -141,45 +161,56 @@ function overlayTemplateData(pages, templateKey, changeType, data, parsed, font)
   const name   = (data.customerName  || '').trim();
   const d      = (t, x, y, sz) => drawField(pages[0], t, x, y, font, sz);
 
+  // Space out digits of account/phone numbers to align with printed boxes
+  const spaced = (s) => String(s || '').trim().split('').join('  ');
+
   if (templateKey === 'dormant') {
-    // Dormant Account Activation Form
-    // Coordinates confirmed via test_dormant3
-    d(today,                                          462, 696);
-    d(acctNo,                                         440, 681);
-    d(name,                                           440, 663);
-    d(parsed?.dormancyReason || data.dormancyReason || '', 215, 515);
+    d(today,                                               425, 710);
+    d(spaced(acctNo),                                      300, 680);
+    d(name,                                                300, 650);
+    d(parsed?.dormancyReason || data.dormancyReason || '', 200, 512);
   }
 
   if (templateKey === 'transaction_profile') {
-    // Transaction Profile Form
-    // Coordinates confirmed via test_tp5
-    d(data.branch || '',                              100, 748);
-    d(acctNo,                                         395, 748);
-    d(name,                                           430, 692);
-    d(String(parsed?.estDepositCount  || data.estDepositCount  || ''), 320, 605);
-    d(String(parsed?.estDepositAmount || data.estDepositAmount || ''), 395, 605);
-    d(String(parsed?.estWithdrawCount  || data.estWithdrawCount  || ''), 320, 443);
-    d(String(parsed?.estWithdrawAmount || data.estWithdrawAmount || ''), 395, 443);
+    d(data.branch || '',                                                  100, 740);
+    d(spaced(acctNo),                                                     360, 745);
+    d(name,                                                               210, 692);
+    d(String(parsed?.estDepositCount   || data.estDepositCount   || ''),  250, 595);
+    d(String(parsed?.estDepositAmount  || data.estDepositAmount  || ''),  350, 595);
+    d(String(parsed?.estWithdrawCount  || data.estWithdrawCount  || ''),  250, 440);
+    d(String(parsed?.estWithdrawAmount || data.estWithdrawAmount || ''),  350, 440);
   }
 
   if (templateKey === 'static_data') {
-    // Account Services Form (page 3 of static_data_change_form.pdf)
-    // Coordinates confirmed via test_static_ymap
-    d(acctNo,  355, 733);
-    d(today,   460, 755);
-    d(name,    335, 718);
+    d(spaced(acctNo),  275, 690);
+    d(today,           400, 725);
+    d(name,            275, 660);
 
     if (changeType === 'address') {
+      // Tick the correct address type checkbox
+      // Checkbox positions (x = left edge of box): Mailing=122, Office=185, Permanent=248, Residence=318
+      // Checkbox y baseline ≈ 700
+      const addrType = (parsed?.addressType || 'mailing').toLowerCase();
+      // 'present' is treated as residence (current living address)
+      const normalised = addrType === 'present' ? 'residence' : addrType;
+      const checkboxX = { mailing: 122, office: 185, permanent: 310, residence: 420 };
+      const cx = checkboxX[normalised] ?? checkboxX.mailing;
+      const cy = 640;
+      // Draw ✓ tick mark inside checkbox
+      pages[0].drawLine({ start: { x: cx, y: cy + 5 }, end: { x: cx + 4, y: cy }, thickness: 2, color: rgb(0,0,0) });
+      pages[0].drawLine({ start: { x: cx + 4, y: cy }, end: { x: cx + 12, y: cy + 10 }, thickness: 2, color: rgb(0,0,0) });
+
       const newAddr = [
         parsed?.addressLine1, parsed?.addressLine2,
         parsed?.upazila, parsed?.district, parsed?.postCode,
       ].filter(Boolean).join(', ');
-      d(data.oldValue || '',  130, 597);
-      d(newAddr,              130, 562);
+      // Wrap long addresses across multiple lines (each line ~13pt apart)
+      wrapText(data.oldValue || '').forEach((line, i) => d(line, 125, 620 - i * 13));
+      wrapText(newAddr).forEach((line, i) => d(line, 125, 575 - i * 13));
     } else if (changeType === 'phone') {
-      d(data.newValue || '', 95, 536);
+      drawField(pages[0], data.newValue || '', 75, 532, font, 13);
     } else if (changeType === 'email') {
-      d(data.newValue || '', 400, 536);
+      drawField(pages[0], data.newValue || '', 400, 532, font, 13);
     }
   }
 }
@@ -271,22 +302,12 @@ async function generateFormPDF(changeType, data) {
     const templateDoc   = await PDFDocument.load(templateBytes);
     const outDoc        = await PDFDocument.create();
 
-    await buildCoverPage(outDoc, {
-      serviceType, approvedAt,
-      customerId:    data.customerId,
-      accountNumber: data.accountNumber || parsed?.accountNumber,
-      customerName:  data.customerName,
-      managerName:   data.managerName,
-      managerEmail:  data.managerEmail,
-      changeDetails,
-    });
-
     const pageIndices = key === 'static_data'
       ? [Math.min(STATIC_DATA_PAGE_INDEX, templateDoc.getPageCount() - 1)]
       : Array.from({ length: templateDoc.getPageCount() }, (_, i) => i);
 
     const copied  = await outDoc.copyPages(templateDoc, pageIndices);
-    const outFont = await outDoc.embedFont(StandardFonts.Helvetica);
+    const outFont = await outDoc.embedFont(StandardFonts.HelveticaBold);
     overlayTemplateData(copied, key, changeType, data, parsed, outFont);
     copied.forEach(p => outDoc.addPage(p));
 
