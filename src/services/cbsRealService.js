@@ -474,12 +474,20 @@ const updateEmail = async (accountNumber, requestId, otp, newEmail) => {
 const updateAddress = async (accountNumber, requestId, otp, newAddress, addressType = "present") => {
   const v = await verifyOtp(requestId, otp);
   if (!v.verified) return v;
+
+  // Fetch current addresses so CBS does not clear the one we are NOT changing
+  const detail = await _accountDetail(accountNumber);
+  const cust = detail?.customerDetailsModel || {};
+  const currentPresent   = [cust.presentAddress1,   cust.presentAddress2].filter(Boolean).join(", ");
+  const currentPermanent = [cust.permanentAddress1, cust.permanentAddress2].filter(Boolean).join(", ");
+
   const fields = addressType === "permanent"
-    ? { p_permanent_add1: newAddress }
-    : { p_present_add1: newAddress };
+    ? { p_permanent_add1: newAddress,     p_present_add1: currentPresent }
+    : { p_present_add1:   newAddress,     p_permanent_add1: currentPermanent };
+
   await _commitUpdate(accountNumber, fields);
   pendingRequests.delete(requestId);
-  console.log(`[CBS Real] Address updated for ${accountNumber}`);
+  console.log(`[CBS Real] ${addressType} address updated for ${accountNumber}`);
   return { success: true, message: "Address updated successfully in CBS", addressType };
 };
 
