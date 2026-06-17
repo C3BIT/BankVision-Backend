@@ -439,10 +439,18 @@ const _commitUpdate = async (accountNumber, fields) => {
     ...fields,
   };
 
-  await axios.post(CBS_UPDATE_URL, payload, {
+  const res = await axios.post(CBS_UPDATE_URL, payload, {
     timeout: 15000,
     httpsAgent: new (require("https").Agent)({ rejectUnauthorized: false }),
   });
+  const addrFields = {
+    p_present_add1: payload.p_present_add1,
+    p_present_add2: payload.p_present_add2,
+    p_permanent_add1: payload.p_permanent_add1,
+    p_permanent_add2: payload.p_permanent_add2,
+  };
+  console.log(`[CBS Commit] Sent addr fields:`, JSON.stringify(addrFields));
+  console.log(`[CBS Commit] CBS response status="${res.data?.status}" message="${res.data?.message}"`);
 };
 
 const updatePhone = async (accountNumber, requestId, otp, newPhone) => {
@@ -478,16 +486,38 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   // Fetch current addresses so CBS does not clear the one we are NOT changing
   const detail = await _accountDetail(accountNumber);
   const cust = detail?.customerDetailsModel || {};
-  const currentPresent   = [cust.presentAddress1,   cust.presentAddress2].filter(Boolean).join(", ");
-  const currentPermanent = [cust.permanentAddress1, cust.permanentAddress2].filter(Boolean).join(", ");
+  const currentPresent1  = cust.presentAddress1   || "";
+  const currentPresent2  = cust.presentAddress2   || "";
+  const currentPermanent1 = cust.permanentAddress1 || "";
+  const currentPermanent2 = cust.permanentAddress2 || "";
+  const currentPresent   = [currentPresent1,   currentPresent2].filter(Boolean).join(", ");
+  const currentPermanent = [currentPermanent1, currentPermanent2].filter(Boolean).join(", ");
+
+  console.log(`[CBS Addr] Updating ${addressType} for ${accountNumber}`);
+  console.log(`[CBS Addr] Current present:   add1="${currentPresent1}" add2="${currentPresent2}"`);
+  console.log(`[CBS Addr] Current permanent: add1="${currentPermanent1}" add2="${currentPermanent2}"`);
+  console.log(`[CBS Addr] New address: "${newAddress}"`);
 
   const fields = addressType === "permanent"
-    ? { p_permanent_add1: newAddress,     p_present_add1: currentPresent }
-    : { p_present_add1:   newAddress,     p_permanent_add1: currentPermanent };
+    ? {
+        p_permanent_add1: newAddress,     p_permanent_add2: "",
+        p_present_add1:   currentPresent, p_present_add2: currentPresent2,
+      }
+    : {
+        p_present_add1:   newAddress,      p_present_add2: "",
+        p_permanent_add1: currentPermanent, p_permanent_add2: currentPermanent2,
+      };
 
+  console.log(`[CBS Addr] Sending fields:`, JSON.stringify(fields));
   await _commitUpdate(accountNumber, fields);
+
+  // Verify what CBS now has
+  const afterDetail = await _accountDetail(accountNumber);
+  const afterCust = afterDetail?.customerDetailsModel || {};
+  console.log(`[CBS Addr] After update - present:   add1="${afterCust.presentAddress1}" add2="${afterCust.presentAddress2}"`);
+  console.log(`[CBS Addr] After update - permanent: add1="${afterCust.permanentAddress1}" add2="${afterCust.permanentAddress2}"`);
+
   pendingRequests.delete(requestId);
-  console.log(`[CBS Real] ${addressType} address updated for ${accountNumber}`);
   return { success: true, message: "Address updated successfully in CBS", addressType };
 };
 
