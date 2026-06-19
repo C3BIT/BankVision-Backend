@@ -794,6 +794,11 @@ const handleSocketConnection = async (socket, io) => {
       // Initiate call to this customer
       console.log(`📞 Manager ${email} picked call from queue for customer ${customerPhone}`);
 
+      // Capture previous status BEFORE setting to busy so it can be restored on call end
+      const allManagers = getAllManagers();
+      const currentManager = allManagers.find(m => m.email === email);
+      const previousStatus = currentManager?.status || AGENT_STATUS.ONLINE;
+
       // Update manager status
       updateUserStatus(email, role, AGENT_STATUS.BUSY);
 
@@ -828,15 +833,10 @@ const handleSocketConnection = async (socket, io) => {
         accountNumber: accountNumber, // Store for CBS updates later
         callRoom: callRoom,
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
+        managerPreviousStatus: previousStatus,
       };
 
       socket.user.customerPhone = normalizedPhone;
-
-      // Store manager's previous status before setting to BUSY
-      const allManagers = getAllManagers();
-      const currentManager = allManagers.find(m => m.email === email);
-      const previousStatus = currentManager?.status || AGENT_STATUS.ONLINE;
-      activeCustomerCalls[normalizedPhone].managerPreviousStatus = previousStatus;
 
       // Create call log entry
       try {
@@ -4600,6 +4600,13 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
     `📞 Call initiated: Customer ${normalizedCustomerPhone} → Manager ${selectedManager.email}`
   );
   console.log(`🔗 Call Room: ${roomId}`);
+
+  // Capture previous status BEFORE setting to busy so it can be restored on call end
+  if (!activeCustomerCalls[normalizedCustomerPhone].managerPreviousStatus) {
+    const allMgrs = getAllManagers();
+    const mgr = allMgrs.find(m => m.email === selectedManager.email);
+    activeCustomerCalls[normalizedCustomerPhone].managerPreviousStatus = mgr?.status || AGENT_STATUS.ONLINE;
+  }
 
   // Update manager status
   updateUserStatus(selectedManager.email, "manager", "busy");
