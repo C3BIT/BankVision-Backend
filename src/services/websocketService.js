@@ -13,7 +13,7 @@ const initializeWebSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true,
     },
-    pingTimeout: 60000,
+    pingTimeout: 10000,
     pingInterval: 25000,
   });
   io.use(socketAuthMiddleware);
