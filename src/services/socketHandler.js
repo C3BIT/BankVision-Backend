@@ -52,6 +52,12 @@ const activeCustomerCalls = {};
 const rejectedManagers = {};
 const activeSupervisors = {}; // Track supervisors monitoring calls
 
+// Grace-period timers: key → setTimeout id
+// Customer keys:  normalizedPhone
+// Manager keys:   `mgr:${email}:${normalizedPhone}`
+const disconnectTimers = {};
+const DISCONNECT_GRACE_MS = 15000; // 15 s to reconnect before call is force-ended
+
 const handleSocketConnection = async (socket, io) => {
   // Normalize phone number if present for consistent tracking
   if (socket.user && socket.user.phone) {
@@ -111,6 +117,17 @@ const handleSocketConnection = async (socket, io) => {
         if (activeCustomerCalls[normalizedPhone]) {
           console.log(`♻️ Customer ${normalizedPhone} reconnected - updating call state socketId: ${socketId}`);
           activeCustomerCalls[normalizedPhone].customerSocketId = socketId;
+
+          // Cancel the grace-period timer if customer reconnects in time
+          if (disconnectTimers[normalizedPhone]) {
+            clearTimeout(disconnectTimers[normalizedPhone]);
+            delete disconnectTimers[normalizedPhone];
+            console.log(`✅ Customer ${normalizedPhone} reconnected within grace period — call continues`);
+            const managerSocketId = activeCustomerCalls[normalizedPhone].managerSocketId;
+            if (managerSocketId) {
+              io.to(managerSocketId).emit("customer:reconnected", { message: "Customer reconnected" });
+            }
+          }
         }
       } else if (role === "manager" && email) {
         // Find if this manager has any active calls and update their socketId
@@ -122,6 +139,18 @@ const handleSocketConnection = async (socket, io) => {
             // Restore customerPhone on the new socket so manager operations work
             socket.user.customerPhone = custPhone;
             hasActiveCall = true;
+
+            // Cancel the grace-period timer if manager reconnects in time
+            const timerKey = `mgr:${email}:${normalizePhone(custPhone)}`;
+            if (disconnectTimers[timerKey]) {
+              clearTimeout(disconnectTimers[timerKey]);
+              delete disconnectTimers[timerKey];
+              console.log(`✅ Manager ${email} reconnected within grace period — call continues`);
+              const custSocketId = activeCustomerCalls[custPhone].customerSocketId;
+              if (custSocketId) {
+                io.to(custSocketId).emit("manager:reconnected", { message: "Manager reconnected" });
+              }
+            }
           }
         });
 
@@ -4352,41 +4381,102 @@ const handleSocketConnection = async (socket, io) => {
       );
 
       if (role === "customer") {
-        // Remove from queue if in queue
+        const normalizedPhone = normalizePhone(phone);
+
+        // Remove from queue if waiting (not in an active call)
         const wasInQueue = await removeCustomerFromQueue(phone);
         if (wasInQueue) {
           console.log(`📋 Customer ${phone} removed from queue on disconnect`);
           broadcastQueueAndStatus(io);
         }
-        // Auto-stop recording if customer disconnects during call
-        const callData = activeCustomerCalls[phone];
-        if (callData?.egressId) {
-          try {
-            const recordingService = require('./recordingService');
-            await recordingService.stopRecording(callData.egressId);
-            console.log(`🛑 Auto-recording stopped for call ${callData.callRoom} on customer disconnect`);
-          } catch (recErr) {
-            console.error("⚠️ Failed to auto-stop recording on disconnect:", recErr.message);
-          }
-        }
 
-        await clearActiveCustomerCall(phone, io);
+        // If in an active call, start grace period instead of ending immediately
+        const activeCall = activeCustomerCalls[normalizedPhone];
+        if (activeCall && activeCall.currentManagerEmail) {
+          // Stop recording immediately — WebRTC data won't come in anyway
+          if (activeCall.egressId) {
+            try {
+              const recordingService = require('./recordingService');
+              await recordingService.stopRecording(activeCall.egressId);
+              console.log(`🛑 Auto-recording stopped on customer disconnect for ${normalizedPhone}`);
+            } catch (recErr) {
+              console.error("⚠️ Failed to auto-stop recording on customer disconnect:", recErr.message);
+            }
+          }
+
+          // Notify manager and start grace period
+          const managerSocketId = activeCall.managerSocketId;
+          if (managerSocketId) {
+            io.to(managerSocketId).emit("customer:reconnecting", {
+              message: "Customer connection interrupted. Waiting for reconnect...",
+              gracePeriodMs: DISCONNECT_GRACE_MS,
+            });
+          }
+
+          console.log(`⏳ Customer ${normalizedPhone} disconnected during call — ${DISCONNECT_GRACE_MS / 1000}s grace period started`);
+          disconnectTimers[normalizedPhone] = setTimeout(async () => {
+            delete disconnectTimers[normalizedPhone];
+            if (!activeCustomerCalls[normalizedPhone]) return; // Already cleaned up
+
+            console.log(`⌛ Grace period expired for customer ${normalizedPhone} — ending call`);
+            const mgr = io.sockets.sockets.get(activeCustomerCalls[normalizedPhone].managerSocketId);
+            if (mgr) {
+              mgr.emit("call:ended", {
+                endedBy: "system",
+                reason: "customer_disconnected",
+                message: "Call ended: customer did not reconnect in time.",
+              });
+            }
+            // Also emit to the customer socket if they somehow reconnected without an active call entry
+            const custSocketId = activeCustomerCalls[normalizedPhone]?.customerSocketId;
+            if (custSocketId) {
+              io.to(custSocketId).emit("call:ended", {
+                endedBy: "system",
+                reason: "customer_disconnected",
+              });
+            }
+            await clearActiveCustomerCall(normalizedPhone, io);
+            io.emit("manager:list", findAvailableManagers());
+            await broadcastQueueAndStatus(io);
+          }, DISCONNECT_GRACE_MS);
+        } else {
+          // Not in an active call — clear immediately as before
+          await clearActiveCustomerCall(phone, io);
+        }
       } else if (role === "manager") {
         Object.keys(activeCustomerCalls).forEach((customerPhone) => {
-          const normalizedPhone = normalizePhone(customerPhone);
-          if (
-            activeCustomerCalls[normalizedPhone].currentManagerEmail === email
-          ) {
-            console.log(
-              `📣 Notifying customer ${normalizedPhone} about manager ${email} disconnection`
-            );
-            io.to(activeCustomerCalls[normalizedPhone].customerSocketId).emit(
-              "manager:disconnected",
-              {
-                managerId: email,
-                managerName: name || null,
+          const normalizedCustPhone = normalizePhone(customerPhone);
+          if (activeCustomerCalls[normalizedCustPhone].currentManagerEmail === email) {
+            const timerKey = `mgr:${email}:${normalizedCustPhone}`;
+            const custSocketId = activeCustomerCalls[normalizedCustPhone].customerSocketId;
+
+            // Notify customer and start grace period
+            if (custSocketId) {
+              io.to(custSocketId).emit("manager:reconnecting", {
+                message: "Manager connection interrupted. Waiting for reconnect...",
+                gracePeriodMs: DISCONNECT_GRACE_MS,
+              });
+            }
+
+            console.log(`⏳ Manager ${email} disconnected during call with ${normalizedCustPhone} — ${DISCONNECT_GRACE_MS / 1000}s grace period started`);
+            disconnectTimers[timerKey] = setTimeout(async () => {
+              delete disconnectTimers[timerKey];
+              if (!activeCustomerCalls[normalizedCustPhone] ||
+                  activeCustomerCalls[normalizedCustPhone].currentManagerEmail !== email) return;
+
+              console.log(`⌛ Grace period expired for manager ${email} — ending call with ${normalizedCustPhone}`);
+              const cSocket = io.sockets.sockets.get(activeCustomerCalls[normalizedCustPhone].customerSocketId);
+              if (cSocket) {
+                cSocket.emit("call:ended", {
+                  endedBy: "system",
+                  reason: "manager_disconnected",
+                  message: "Call ended: manager did not reconnect in time.",
+                });
               }
-            );
+              await clearActiveCustomerCall(normalizedCustPhone, io);
+              io.emit("manager:list", findAvailableManagers());
+              await broadcastQueueAndStatus(io);
+            }, DISCONNECT_GRACE_MS);
           }
         });
       }
