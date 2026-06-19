@@ -4419,16 +4419,34 @@ const handleSocketConnection = async (socket, io) => {
             if (!activeCustomerCalls[normalizedPhone]) return; // Already cleaned up
 
             console.log(`⌛ Grace period expired for customer ${normalizedPhone} — ending call`);
-            const mgr = io.sockets.sockets.get(activeCustomerCalls[normalizedPhone].managerSocketId);
+            const callEntry = activeCustomerCalls[normalizedPhone];
+
+            // Complete call log so it registers as a taken/completed call
+            if (callEntry?.callRoom) {
+              try {
+                await callLogService.completeCall(callEntry.callRoom, "system", {
+                  phoneVerified: callEntry.phoneVerified || false,
+                  emailVerified: callEntry.emailVerified || false,
+                  faceVerified: callEntry.faceVerified || false,
+                  chatMessagesCount: callEntry.chatMessagesCount || 0,
+                  metadata: { disconnectedBy: "customer" },
+                });
+              } catch (err) {
+                console.error("❌ Error completing call log on customer disconnect timeout:", err);
+              }
+            }
+
+            const mgr = io.sockets.sockets.get(callEntry.managerSocketId);
             if (mgr) {
               mgr.emit("call:ended", {
                 endedBy: "system",
                 reason: "customer_disconnected",
                 message: "Call ended: customer did not reconnect in time.",
+                callLogId: callEntry.callLogId || null,
+                referenceNumber: callEntry.referenceNumber || null,
               });
             }
-            // Also emit to the customer socket if they somehow reconnected without an active call entry
-            const custSocketId = activeCustomerCalls[normalizedPhone]?.customerSocketId;
+            const custSocketId = callEntry?.customerSocketId;
             if (custSocketId) {
               io.to(custSocketId).emit("call:ended", {
                 endedBy: "system",
@@ -4437,6 +4455,7 @@ const handleSocketConnection = async (socket, io) => {
             }
             await clearActiveCustomerCall(normalizedPhone, io);
             io.emit("manager:list", findAvailableManagers());
+            io.emit("stats:update", { event: "call-completed", timestamp: Date.now() });
             await broadcastQueueAndStatus(io);
           }, DISCONNECT_GRACE_MS);
         } else {
@@ -4465,7 +4484,24 @@ const handleSocketConnection = async (socket, io) => {
                   activeCustomerCalls[normalizedCustPhone].currentManagerEmail !== email) return;
 
               console.log(`⌛ Grace period expired for manager ${email} — ending call with ${normalizedCustPhone}`);
-              const cSocket = io.sockets.sockets.get(activeCustomerCalls[normalizedCustPhone].customerSocketId);
+              const callEntry = activeCustomerCalls[normalizedCustPhone];
+
+              // Complete call log so it registers as a taken/completed call
+              if (callEntry?.callRoom) {
+                try {
+                  await callLogService.completeCall(callEntry.callRoom, "system", {
+                    phoneVerified: callEntry.phoneVerified || false,
+                    emailVerified: callEntry.emailVerified || false,
+                    faceVerified: callEntry.faceVerified || false,
+                    chatMessagesCount: callEntry.chatMessagesCount || 0,
+                    metadata: { disconnectedBy: "manager" },
+                  });
+                } catch (err) {
+                  console.error("❌ Error completing call log on manager disconnect timeout:", err);
+                }
+              }
+
+              const cSocket = io.sockets.sockets.get(callEntry.customerSocketId);
               if (cSocket) {
                 cSocket.emit("call:ended", {
                   endedBy: "system",
@@ -4475,6 +4511,7 @@ const handleSocketConnection = async (socket, io) => {
               }
               await clearActiveCustomerCall(normalizedCustPhone, io);
               io.emit("manager:list", findAvailableManagers());
+              io.emit("stats:update", { event: "call-completed", timestamp: Date.now() });
               await broadcastQueueAndStatus(io);
             }, DISCONNECT_GRACE_MS);
           }
