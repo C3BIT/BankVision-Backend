@@ -2425,27 +2425,8 @@ const handleSocketConnection = async (socket, io) => {
           console.log(`✅ Notified customer ${lookupPhone} that ${changeType} change was completed by manager`);
         }
 
-        // Save audit record for manager override flow
-        (async () => {
-          try {
-            const { ChangeRequest } = require("../models/ChangeRequest");
-            await ChangeRequest.create({
-              customerId: lookupPhone,
-              managerId: socket.user.id,
-              changeType,
-              oldValue: currentValue || '',
-              newValue,
-              status: 'approved',
-              method: 'manager_override',
-              notes: `Manager sent OTP to new ${changeType} and verified directly on behalf of customer. No separate approval dialog required.`,
-              ipAddress: socket.handshake.address,
-              userAgent: socket.handshake.headers['user-agent'],
-            });
-            console.log(`📋 Audit record saved: manager override ${changeType} change for ${lookupPhone}`);
-          } catch (auditErr) {
-            console.error('❌ Failed to save manager override audit record:', auditErr);
-          }
-        })();
+        // Audit record is created in manager:approve-change with method='manager_override'
+        // to avoid a duplicate entry when ChangeRequestPanel approval fires.
       } else if (role === 'customer' && activeCall.currentManagerEmail) {
         // Customer submitted — forward to manager for acknowledgment
         const managerSocketId = getOnlineUsersWithInfo().find(
@@ -2546,7 +2527,7 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("manager:approve-change", async (data) => {
       if (role !== "manager") return;
 
-      const { changeType, customerId, newValue, currentValue } = data;
+      const { changeType, customerId, newValue, currentValue, isOverride } = data;
       const normalizedCustomerId = normalizePhone(customerId);
       const { ChangeRequest } = require("../models/ChangeRequest");
       console.log(`✅ Manager ${email} approved ${changeType} change for customer ${normalizedCustomerId}: ${currentValue} → ${newValue}`);
@@ -2570,6 +2551,10 @@ const handleSocketConnection = async (socket, io) => {
         socket.emit("debug:cbs-call", { endpoint: cbsEndpoint, args: cbsPayload, timestamp: new Date().toISOString() });
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
+        const auditMethod = isOverride ? 'manager_override' : 'standard';
+        const auditNotes = isOverride
+          ? `Manager sent OTP to new ${changeType} and verified directly on behalf of customer. Account: ${accountNumber || 'N/A'}.`
+          : `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`;
         const crPhoneEmail = await ChangeRequest.create({
           customerId,
           managerId: socket.user.id,
@@ -2577,8 +2562,8 @@ const handleSocketConnection = async (socket, io) => {
           oldValue: currentValue || '',
           newValue,
           status: 'approved',
-          method: 'standard',
-          notes: `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`,
+          method: auditMethod,
+          notes: auditNotes,
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent']
         }).catch(err => { console.error('⚠️ Audit save failed (non-fatal):', err.message); return null; });
