@@ -1193,17 +1193,19 @@ const generateWhisperToken = async (req, res) => {
       ttl: '2h'
     });
 
-    // If mode is 'barge', supervisor can publish audio/video and is visible.
-    // Othewise (listen/whisper), supervisor is silent and hidden.
-    const isBarge = mode === 'barge';
+    // listen  → receive only, fully hidden
+    // whisper → publish audio (to coach the manager), hidden from participant list
+    // barge   → publish audio+video, visible as a participant
+    const isBarge   = mode === 'barge';
+    const isWhisper = mode === 'whisper';
 
     at.addGrant({
       roomJoin: true,
       room: roomName,
-      canPublish: isBarge,       // Barge can publish, others cannot
-      canSubscribe: true,        // Open to all tracks
-      canPublishData: isBarge,   // Barge can send data messages
-      hidden: !isBarge           // Barge is visible, others are hidden
+      canPublish: isBarge || isWhisper,  // whisper and barge can publish audio
+      canSubscribe: true,
+      canPublishData: isBarge,
+      hidden: !isBarge                   // whisper stays hidden in participant list
     });
 
     const token = await at.toJwt();
