@@ -377,7 +377,11 @@ const handleSocketConnection = async (socket, io) => {
     });
 
     // Call end events
-    socket.on("call:end", async () => {
+    socket.on("call:end", async (data = {}) => {
+      // When the LiveKit reconnect timer fires (peer dropped WebRTC but socket stayed up),
+      // the frontend emits { reason: "peer_timeout" }. Record these as system-ended with
+      // correct attribution so call counts reflect who caused the disruption.
+      const isPeerTimeout = data?.reason === "peer_timeout";
       if (role === "customer") {
         console.log(`🔄 Customer ${phone} ended call`);
 
@@ -436,17 +440,20 @@ const handleSocketConnection = async (socket, io) => {
           }
         }
 
-        // Complete call log
+        // Complete call log — peer_timeout means manager's LiveKit dropped, customer reports it
         if (activeCustomerCalls[phone]?.callRoom) {
           try {
+            const endedBy = isPeerTimeout ? "system" : "customer";
+            const metadata = isPeerTimeout ? { disconnectedBy: "manager" } : undefined;
             await callLogService.completeCall(
               activeCustomerCalls[phone].callRoom,
-              "customer",
+              endedBy,
               {
                 phoneVerified: activeCustomerCalls[phone].phoneVerified || false,
                 emailVerified: activeCustomerCalls[phone].emailVerified || false,
                 faceVerified: activeCustomerCalls[phone].faceVerified || false,
-                chatMessagesCount: activeCustomerCalls[phone].chatMessagesCount || 0
+                chatMessagesCount: activeCustomerCalls[phone].chatMessagesCount || 0,
+                ...(metadata && { metadata }),
               }
             );
           } catch (err) {
@@ -464,7 +471,7 @@ const handleSocketConnection = async (socket, io) => {
 
         // Notify customer that call has ended (confirm their end request)
         socket.emit("call:ended", {
-          endedBy: "customer",
+          endedBy: isPeerTimeout ? "system" : "customer",
           message: "Call ended successfully"
         });
         console.log(`✅ Sent call:ended confirmation to customer ${phone}`);
@@ -511,17 +518,20 @@ const handleSocketConnection = async (socket, io) => {
             }
           }
 
-          // Complete call log
+          // Complete call log — peer_timeout means customer's LiveKit dropped, manager reports it
           if (activeCustomerCalls[customerPhone]?.callRoom) {
             try {
+              const endedBy = isPeerTimeout ? "system" : "manager";
+              const metadata = isPeerTimeout ? { disconnectedBy: "customer" } : undefined;
               await callLogService.completeCall(
                 activeCustomerCalls[customerPhone].callRoom,
-                "manager",
+                endedBy,
                 {
                   phoneVerified: activeCustomerCalls[customerPhone].phoneVerified || false,
                   emailVerified: activeCustomerCalls[customerPhone].emailVerified || false,
                   faceVerified: activeCustomerCalls[customerPhone].faceVerified || false,
-                  chatMessagesCount: activeCustomerCalls[customerPhone].chatMessagesCount || 0
+                  chatMessagesCount: activeCustomerCalls[customerPhone].chatMessagesCount || 0,
+                  ...(metadata && { metadata }),
                 }
               );
             } catch (err) {
