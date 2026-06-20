@@ -2489,7 +2489,7 @@ const handleSocketConnection = async (socket, io) => {
     // Customer or Manager submits address change request
     socket.on("customer:submit-address-change-request", (data) => {
       // Allow both customer and manager to trigger this
-      const { addressType, addressData } = data;
+      const { addressType, addressData, oldAddress } = data;
 
       // When manager triggers this, look up customer by customerPhone, not manager's own phone
       const lookupPhone = role === 'manager'
@@ -2515,6 +2515,7 @@ const handleSocketConnection = async (socket, io) => {
         io.to(managerSocketId).emit("customer:submit-address-change-request", {
           addressType,
           addressData,
+          oldAddress,
         });
         console.log(`✅ Address change request forwarded to manager ${activeCall.currentManagerEmail}`);
       }
@@ -2524,6 +2525,7 @@ const handleSocketConnection = async (socket, io) => {
         io.to(activeCall.customerSocketId).emit("customer:submit-address-change-request", {
           addressType,
           addressData,
+          oldAddress,
         });
       }
     });
