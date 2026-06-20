@@ -2346,7 +2346,7 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`✅ Email change request sent to customer ${customerPhone}`);
     });
 
-    socket.on("manager:request-address-change", () => {
+    socket.on("manager:request-address-change", (data = {}) => {
       if (role !== "manager") return;
 
       const customerPhone = normalizePhone(socket.user.customerPhone);
@@ -2368,6 +2368,7 @@ const handleSocketConnection = async (socket, io) => {
           message: "Manager has requested you to change your address",
           managerId: email,
           managerName: name || null,
+          accountData: data.accountData || null,
         }
       );
 
