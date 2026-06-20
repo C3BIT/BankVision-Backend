@@ -115,8 +115,8 @@ const mapDetail = (detail) => {
     name: info.accName || cust.fullName,
     email: cust.email || null,
     mobileNumber: cust.mobile || info.phone || null,
-    address: [cust.presentAddress1, cust.presentAddress2].filter(Boolean).join(", "),
-    permanentAddress: [cust.permanentAddress1, cust.permanentAddress2].filter(Boolean).join(", "),
+    address: [cust.presentAddress1, cust.presentAddress2].map(s => (s || '').trim()).filter(Boolean).join(", "),
+    permanentAddress: [cust.permanentAddress1, cust.permanentAddress2].map(s => (s || '').trim()).filter(Boolean).join(", "),
     branch: info.branchCode || dep.branchCode,
     nidNumber: cust.nidNum || null,
     dateOfBirth: cust.dtOfBirth || info.dob,
@@ -498,14 +498,19 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   console.log(`[CBS Addr] Current permanent: add1="${currentPermanent1}" add2="${currentPermanent2}"`);
   console.log(`[CBS Addr] New address: "${newAddress}"`);
 
+  // When clearing add2 for the updated address type, send a single space rather than
+  // empty string — CBS ignores "" and leaves the old value; " " overwrites it (trimmed
+  // out on readback via the filter in mapDetail).
+  // Preserve the OTHER address type using the original individual fields (not the joined
+  // string) to avoid duplicating add2 on the next readback.
   const fields = addressType === "permanent"
     ? {
-        p_permanent_add1: newAddress,     p_permanent_add2: "",
-        p_present_add1:   currentPresent, p_present_add2: currentPresent2,
+        p_permanent_add1: newAddress,      p_permanent_add2: " ",
+        p_present_add1:   currentPresent1, p_present_add2: currentPresent2,
       }
     : {
-        p_present_add1:   newAddress,      p_present_add2: "",
-        p_permanent_add1: currentPermanent, p_permanent_add2: currentPermanent2,
+        p_present_add1:   newAddress,       p_present_add2: " ",
+        p_permanent_add1: currentPermanent1, p_permanent_add2: currentPermanent2,
       };
 
   console.log(`[CBS Addr] Sending fields:`, JSON.stringify(fields));
