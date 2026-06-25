@@ -18,6 +18,8 @@ const {
   CBS_URL_CUSTOMER_SIGNATURE,
   CBS_URL_SET_ACCOUNT_ACTIVE,
   CBS_URL_SAVE_ADDRESS,
+  CBS_URL_SAVE_CUSTOMER_INFO_LOG,
+  CBS_URL_GET_CUSTOMER_PHOTO,
   CBS_SMS_USERNAME,
   CBS_SMS_PASSWORD,
   CBS_SMS_CHANNEL_ID,
@@ -609,12 +611,48 @@ setInterval(() => {
 // Customer photo and signature (pending MTB API provisioning)
 // ---------------------------------------------------------------------------
 
-const getCustomerPhoto = async (accountNumber) => {
+const getCustomerPhoto = async (customerNo) => {
   const data = await cbsPost(
-    CBS_URL_CUSTOMER_PHOTO,
-    { accountNo: accountNumber, refNo: refNo(), channelId: channelId() }
+    CBS_URL_GET_CUSTOMER_PHOTO,
+    {
+      refNo: refNo(),
+      channelId: "102",
+      serviceRequest: { CustomerNo: customerNo },
+    }
   );
-  return data.imageBase64 || null;
+  const photos = data?.serviceResponse?.Photos;
+  if (!photos || photos.length === 0) return null;
+  const active = photos.find((p) => (p.Status || "").toUpperCase() === "ACTIVE") || photos[0];
+  return active.CustomerPhotoData || null;
+};
+
+// Log customer info access during a video call session.
+// maker = manager employee ID, purpose = reason for the call/service
+const saveCustomerInfoLog = async ({ cifNo, email, mobile, purpose, maker }) => {
+  try {
+    const data = await cbsPost(
+      CBS_URL_SAVE_CUSTOMER_INFO_LOG,
+      {
+        refNo: refNo(),
+        channelId: "102",
+        serviceRequest: {
+          cif_no: cifNo,
+          email: email || "",
+          mobile: mobile || "",
+          purpose: purpose || "Video Banking Session",
+          maker: maker || "",
+        },
+      }
+    );
+    return {
+      success: data?.resCode === "000" || data?.serviceResponse?.status === "200",
+      logId: data?.logId || null,
+    };
+  } catch (err) {
+    // Non-fatal — log but don't block the call flow
+    console.error("[CBS] saveCustomerInfoLog failed:", err.message);
+    return { success: false, logId: null };
+  }
 };
 
 const getCustomerSignature = async (accountNumber) => {
@@ -736,6 +774,7 @@ module.exports = {
   getCustomerPhoto,
   getCustomerSignature,
   getUserIdentity,
+  saveCustomerInfoLog,
   checkEmailExists: async () => [],
   getPendingRequest,
   getDebitCardByAccount,

@@ -440,6 +440,18 @@ const handleSocketConnection = async (socket, io) => {
           }
         }
 
+        // CBS audit log — fire and forget, never blocks call cleanup
+        const _callDataForLog = activeCustomerCalls[phone];
+        if (_callDataForLog?.cifNo) {
+          cbsService.saveCustomerInfoLog({
+            cifNo: _callDataForLog.cifNo,
+            email: _callDataForLog.email || "",
+            mobile: phone,
+            purpose: "Video Banking Session",
+            maker: _callDataForLog.currentManagerEmail || "",
+          }).catch(() => null);
+        }
+
         // Complete call log — peer_timeout means manager's LiveKit dropped, customer reports it
         if (activeCustomerCalls[phone]?.callRoom) {
           try {
@@ -516,6 +528,18 @@ const handleSocketConnection = async (socket, io) => {
             } catch (err) {
               console.error("⚠️ Self-healing recording stop failed:", err.message);
             }
+          }
+
+          // CBS audit log — fire and forget
+          const _mgCallDataForLog = activeCustomerCalls[customerPhone];
+          if (_mgCallDataForLog?.cifNo) {
+            cbsService.saveCustomerInfoLog({
+              cifNo: _mgCallDataForLog.cifNo,
+              email: _mgCallDataForLog.email || "",
+              mobile: customerPhone,
+              purpose: "Video Banking Session",
+              maker: email || "",
+            }).catch(() => null);
           }
 
           // Complete call log — peer_timeout means customer's LiveKit dropped, manager reports it
@@ -849,10 +873,14 @@ const handleSocketConnection = async (socket, io) => {
 
       // Get account number from CBS if possible
       let accountNumber = null;
+      let customerCifNo = null;
+      let customerEmailFromCBS = null;
       try {
         const lookup = await cbsService.lookupCustomerByPhone(normalizedPhone);
         if (lookup && lookup.found) {
           accountNumber = lookup.accountNumber;
+          customerCifNo = lookup.customerCIF || lookup.cifNo || null;
+          customerEmailFromCBS = lookup.email || null;
         }
       } catch (err) {
         console.log(`ℹ️ CBS lookup failed for ${normalizedPhone}:`, err.message);
@@ -870,6 +898,8 @@ const handleSocketConnection = async (socket, io) => {
         customerName: queueEntry.customerName || null,
         customerEmail: queueEntry.customerEmail || null,
         accountNumber: accountNumber, // Store for CBS updates later
+        cifNo: customerCifNo, // Store for CBS audit logging at call end
+        email: customerEmailFromCBS || queueEntry.customerEmail || null,
         callRoom: callRoom,
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
         managerPreviousStatus: previousStatus,

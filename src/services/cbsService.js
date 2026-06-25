@@ -174,6 +174,9 @@ module.exports = {
     ["accountNumber", "imageBase64"]
   ),
 
+  // Log customer info access/modification during a video call session
+  saveCustomerInfoLog: cbs.saveCustomerInfoLog,
+
   // ── Debug / Dev only ─────────────────────────────────────────────────────────
   getPendingRequest: cbs.getPendingRequest,
 
