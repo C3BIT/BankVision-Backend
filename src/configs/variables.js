@@ -113,10 +113,10 @@ module.exports = {
     `${_cbsCoreUrl}/coreMiddleware/utility/common/SaveAddressInfo`,
   // API 15 — saveCustomerInfoLog
   CBS_URL_SAVE_CUSTOMER_INFO_LOG: process.env.CBS_URL_SAVE_CUSTOMER_INFO_LOG ||
-    `${_cbsCoreUrl}/utility/common/saveCustomerInfoLog`,
+    `${_cbsCoreUrl}/coreMiddleware/utility/common/saveCustomerInfoLog`,
   // API 16 — getCustomerPhoto (real bank path)
   CBS_URL_GET_CUSTOMER_PHOTO: process.env.CBS_URL_GET_CUSTOMER_PHOTO ||
-    `${_cbsCoreUrl}/utility/common/getCustomerPhoto`,
+    `${_cbsCoreUrl}/coreMiddleware/utility/common/getCustomerPhoto`,
 
   // MTB CBS — SMS settings
   CBS_SMS_USERNAME: process.env.CBS_SMS_USERNAME || "commonsmsuser",

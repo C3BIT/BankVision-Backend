@@ -6,6 +6,7 @@ const {
   compareFacesByCBS,
   checkOpenCVHealth,
 } = require("../services/faceCompareService");
+const { verifyFaceViaCBS } = require("../services/faceVerificationService");
 const { statusCodes } = require("../utils/statusCodes");
 
 const getActiveProvider = () => process.env.FACE_PROVIDER || "opencv";
@@ -181,8 +182,30 @@ const faceServiceHealthController = async (req, res) => {
   }
 };
 
+const verifyIdentityController = async (req, res) => {
+  try {
+    const { accountNo, imageBase64 } = req.body;
+    if (!accountNo || !imageBase64) {
+      throw Object.assign(new Error("accountNo and imageBase64 are required"), {
+        status: statusCodes.BAD_REQUEST,
+        error: { code: 40032 },
+      });
+    }
+    const result = await verifyFaceViaCBS(accountNo, imageBase64);
+    res.success({
+      verified: result.verified,
+      score: result.score,
+      message: result.message,
+      provider: "cbs",
+    }, result.verified ? "Face verification successful" : "Face does not match");
+  } catch (err) {
+    errorResponseHandler(err, req, res);
+  }
+};
+
 module.exports = {
   compareFacesController,
   compareFacesByAWSController,
   faceServiceHealthController,
+  verifyIdentityController,
 };
