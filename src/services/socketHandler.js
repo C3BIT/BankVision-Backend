@@ -173,70 +173,39 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`🔄 Customer ${phone} initiating call - checking customer registration (optional)`);
       console.log(`📋 Verification info:`, verificationInfo);
 
-      // Try to check customer in CBS (optional - not blocking)
-      // If not found, manager will see "no data found" in info panel
-      let customerAccounts = [];
-      try {
-        customerAccounts = await customerService.getAccountsListByPhone(phone);
-        if (customerAccounts && customerAccounts.length > 0) {
-          console.log(`✅ Customer ${phone} found in CBS with ${customerAccounts.length} account(s)`);
-        } else {
-          console.log(`ℹ️ Customer ${phone} not found in CBS - proceeding anyway (manager will see "no data found")`);
-        }
-      } catch (error) {
-        console.log(`ℹ️ Customer lookup failed (non-blocking):`, error.message);
-        console.log(`ℹ️ Proceeding with call - manager will see "no data found"`);
-        // Don't block - proceed with call
-      }
-
       await clearActiveCustomerCall(phone, io);
 
-      // Check if verification phone/email is in bank database (for internal vs external determination)
+      // Run all CBS lookups in parallel — non-blocking, proceed even if they fail
+      let customerAccounts = [];
+      let cbsLookup = null;
       let isInternal = false;
-      let verificationPhoneOrEmail = null;
+      const verificationPhoneOrEmail = verificationInfo?.phoneOrEmail || null;
 
-      if (verificationInfo && verificationInfo.phoneOrEmail) {
-        verificationPhoneOrEmail = verificationInfo.phoneOrEmail;
+      await Promise.allSettled([
+        customerService.getAccountsListByPhone(phone).then(r => { customerAccounts = r || []; }),
+        cbsService.lookupCustomerByPhone(phone).then(r => { cbsLookup = r; }),
+        verificationPhoneOrEmail && verificationInfo.method === 'phone'
+          ? customerService.getAccountsListByPhone(verificationPhoneOrEmail).then(r => { isInternal = r && r.length > 0; })
+          : Promise.resolve(),
+      ]);
 
-        // Check if verification phone/email exists in bank database
-        try {
-          if (verificationInfo.method === 'phone') {
-            const accounts = await customerService.getAccountsListByPhone(verificationPhoneOrEmail);
-            isInternal = accounts && accounts.length > 0;
-          } else if (verificationInfo.method === 'email') {
-            // Check if email exists in any customer account
-            const accounts = await customerService.getAccountsListByPhone(phone);
-            isInternal = accounts.some(acc => acc.email === verificationPhoneOrEmail);
-          }
-          console.log(`🔍 Verification ${verificationInfo.method} ${verificationPhoneOrEmail} is ${isInternal ? 'INTERNAL' : 'EXTERNAL'} (${isInternal ? 'in bank' : 'not in bank'})`);
-        } catch (error) {
-          console.error(`⚠️ Error checking verification status:`, error);
-          isInternal = false; // Default to external if check fails
-        }
+      if (customerAccounts.length > 0) {
+        console.log(`✅ Customer ${phone} found in CBS with ${customerAccounts.length} account(s)`);
+      } else {
+        console.log(`ℹ️ Customer ${phone} not found in CBS - proceeding anyway`);
+      }
+      if (verificationPhoneOrEmail) {
+        console.log(`🔍 Verification ${verificationInfo.method} ${verificationPhoneOrEmail} is ${isInternal ? 'INTERNAL' : 'EXTERNAL'}`);
       }
 
-      // Look up customer name/email from CBS/DB if not already known
       let resolvedName = name || null;
       let resolvedEmail = socket.user.customerEmail || null;
-      let isGuest = true;
-      if (customerAccounts && customerAccounts.length > 0) {
-        isGuest = false;
+      const isGuest = customerAccounts.length === 0;
+      if (cbsLookup && cbsLookup.found) {
+        if (!resolvedName) resolvedName = cbsLookup.name || null;
+        if (!resolvedEmail && cbsLookup.email) resolvedEmail = cbsLookup.email;
       }
-      if (!resolvedName || !resolvedEmail) {
-        try {
-          const lookup = await cbsService.lookupCustomerByPhone(phone);
-          if (lookup && lookup.found) {
-            if (!resolvedName) resolvedName = lookup.name || null;
-            if (!resolvedEmail && lookup.email) resolvedEmail = lookup.email;
-          }
-        } catch (err) {
-          console.log(`ℹ️ Customer CBS lookup failed (non-blocking):`, err.message);
-        }
-      }
-      // If still no name, mark as Guest
-      if (!resolvedName) {
-        resolvedName = 'Guest';
-      }
+      if (!resolvedName) resolvedName = 'Guest';
 
       // SIMPLIFIED: All calls go to BullMQ queue - managers pick manually from dashboard
       const result = await addCustomerToQueue({
