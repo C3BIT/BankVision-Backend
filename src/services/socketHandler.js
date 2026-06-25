@@ -82,7 +82,7 @@ const handleSocketConnection = async (socket, io) => {
   };
   if (!socketId || !role) {
     console.error(`❌ Invalid socket connection: Missing required data`);
-    socket.emit("error", { message: "Invalid connection data" });
+    socket.emit("call:error", { message: "Invalid connection data" });
     return socket.disconnect(true);
   }
 
@@ -644,7 +644,7 @@ const handleSocketConnection = async (socket, io) => {
       const validStatuses = Object.values(AGENT_STATUS);
 
       if (!validStatuses.includes(status)) {
-        return socket.emit("error", { message: "Invalid status" });
+        return socket.emit("call:error", { message: "Invalid status" });
       }
 
       console.log(`🔄 Manager ${email} set status to ${status}`);
@@ -698,11 +698,11 @@ const handleSocketConnection = async (socket, io) => {
       } else if (role === "manager") {
         const customerPhone = socket.user.customerPhone;
         if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-          return socket.emit("error", { message: "No active call" });
+          return socket.emit("call:error", { message: "No active call" });
         }
         const call = activeCustomerCalls[customerPhone];
         if (call.isRecording) {
-          return socket.emit("error", { message: "Recording already in progress" });
+          return socket.emit("call:error", { message: "Recording already in progress" });
         }
         try {
           const recording = await Recording.create({
@@ -734,10 +734,10 @@ const handleSocketConnection = async (socket, io) => {
           console.log(`🔴 Recording started for call ${customerPhone} by manager ${email}`);
         } catch (error) {
           console.error("❌ Error starting recording:", error);
-          socket.emit("error", { message: "Failed to start recording" });
+          socket.emit("call:error", { message: "Failed to start recording" });
         }
       } else {
-        socket.emit("error", { message: "Unauthorized" });
+        socket.emit("call:error", { message: "Unauthorized" });
       }
     });
 
@@ -758,11 +758,11 @@ const handleSocketConnection = async (socket, io) => {
       } else if (role === "manager") {
         const customerPhone = socket.user.customerPhone;
         if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-          return socket.emit("error", { message: "No active call" });
+          return socket.emit("call:error", { message: "No active call" });
         }
         const call = activeCustomerCalls[customerPhone];
         if (!call.isRecording || !call.recordingId) {
-          return socket.emit("error", { message: "No recording in progress" });
+          return socket.emit("call:error", { message: "No recording in progress" });
         }
         try {
           const duration = Math.floor((Date.now() - call.recordingStartTime) / 1000);
@@ -786,10 +786,10 @@ const handleSocketConnection = async (socket, io) => {
           console.log(`⏹️ Recording stopped for call ${customerPhone}, duration: ${duration}s`);
         } catch (error) {
           console.error("❌ Error stopping recording:", error);
-          socket.emit("error", { message: "Failed to stop recording" });
+          socket.emit("call:error", { message: "Failed to stop recording" });
         }
       } else {
-        socket.emit("error", { message: "Unauthorized" });
+        socket.emit("call:error", { message: "Unauthorized" });
       }
     });
 
@@ -839,19 +839,19 @@ const handleSocketConnection = async (socket, io) => {
       const queueEntry = queue.find(q => normalizePhone(q.customerPhone) === customerPhone);
 
       if (!queueEntry) {
-        return socket.emit("error", { message: "Customer not found in queue" });
+        return socket.emit("call:error", { message: "Customer not found in queue" });
       }
 
       // Remove from BullMQ queue
       const removed = await removeCustomerFromQueue(customerPhone);
       if (!removed) {
-        return socket.emit("error", { message: "Failed to remove customer from queue" });
+        return socket.emit("call:error", { message: "Failed to remove customer from queue" });
       }
 
       // Check if customer is still connected
       const customerSocket = io.sockets.sockets.get(queueEntry.socketId);
       if (!customerSocket) {
-        return socket.emit("error", { message: "Customer has disconnected" });
+        return socket.emit("call:error", { message: "Customer has disconnected" });
       }
 
       // Initiate call to this customer
@@ -1025,7 +1025,7 @@ const handleSocketConnection = async (socket, io) => {
 
       } catch (error) {
         console.error(`❌ Error removing customer ${phone} from queue:`, error);
-        socket.emit("error", {
+        socket.emit("call:error", {
           message: "Failed to leave queue"
         });
       }
@@ -1056,7 +1056,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const customerPhone = normalizePhone(rawCustomerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer found.",
         });
       }
@@ -1078,7 +1078,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerSocketId) {
         console.error(`❌ No active socket found for customer ${customerPhone}`);
-        return socket.emit("error", { message: "Customer is not connected." });
+        return socket.emit("call:error", { message: "Customer is not connected." });
       }
 
       try {
@@ -1098,7 +1098,7 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`📱 Phone OTP sent and customer ${customerPhone} notified via socket ${customerSocketId}`);
       } catch (error) {
         console.error("❌ Error sending phone verification OTP:", error);
-        socket.emit("error", { message: "Failed to send OTP to customer." });
+        socket.emit("call:error", { message: "Failed to send OTP to customer." });
       }
     });
 
@@ -1176,14 +1176,14 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
 
       if (!customerEmail) {
         console.log(`⚠️ No email provided for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "Customer email is required",
         });
       }
@@ -1205,7 +1205,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerSocketId) {
         console.error(`❌ No active socket found for customer ${customerPhone}`);
-        return socket.emit("error", { message: "Customer is not connected." });
+        return socket.emit("call:error", { message: "Customer is not connected." });
       }
 
       try {
@@ -1229,7 +1229,7 @@ const handleSocketConnection = async (socket, io) => {
         );
       } catch (error) {
         console.error(`❌ Error sending email verification to ${customerEmail}: ${error.message}`);
-        socket.emit("error", { message: "Failed to send email OTP to customer." });
+        socket.emit("call:error", { message: "Failed to send email OTP to customer." });
       }
     });
 
@@ -1324,7 +1324,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -1720,7 +1720,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -1773,7 +1773,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -1854,7 +1854,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2063,7 +2063,7 @@ const handleSocketConnection = async (socket, io) => {
       const activeCall = activeCustomerCalls[customerPhone];
       if (!activeCall) {
         console.log(`⚠️ No active call found for signature request. Normalized Phone: ${customerPhone}. Active keys:`, Object.keys(activeCustomerCalls));
-        return socket.emit("error", { message: "No active call found with this customer" });
+        return socket.emit("call:error", { message: "No active call found with this customer" });
       }
 
       // Ensure manager socket ID is fresh
@@ -2075,7 +2075,7 @@ const handleSocketConnection = async (socket, io) => {
       )?.socketId || activeCall.customerSocketId;
 
       if (!customerSocketId) {
-        return socket.emit("error", { message: "Customer is not currently connected" });
+        return socket.emit("call:error", { message: "Customer is not currently connected" });
       }
 
       // Clear previous requests
@@ -2215,7 +2215,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2270,7 +2270,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(socket.user.customerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2328,7 +2328,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2356,7 +2356,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2384,7 +2384,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -2591,7 +2591,7 @@ const handleSocketConnection = async (socket, io) => {
         if (managerSocketId) io.to(managerSocketId).emit("otp:resent", { type, target, success: true });
       } catch (error) {
         console.error(`❌ Error resending ${type} OTP:`, error.message);
-        socket.emit("error", { message: `Failed to resend ${type} OTP` });
+        socket.emit("call:error", { message: `Failed to resend ${type} OTP` });
       }
     });
 
@@ -2683,7 +2683,7 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
       } catch (error) {
         console.error(`❌ Error approving ${changeType} change:`, error);
-        socket.emit("error", { message: "Failed to update record in banking system" });
+        socket.emit("call:error", { message: "Failed to update record in banking system" });
       }
     });
 
@@ -2727,7 +2727,7 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
       } catch (error) {
         console.error(`❌ Error rejecting ${changeType} change:`, error);
-        socket.emit("error", { message: "Failed to reject change request" });
+        socket.emit("call:error", { message: "Failed to reject change request" });
       }
     });
 
@@ -2807,7 +2807,7 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`✅ Approval notification sent to customer ${normalizedCustomerId}`);
       } catch (error) {
         console.error(`❌ Error approving address change:`, error);
-        socket.emit("error", { message: "Failed to update address in banking system" });
+        socket.emit("call:error", { message: "Failed to update address in banking system" });
       }
     });
 
@@ -2851,7 +2851,7 @@ const handleSocketConnection = async (socket, io) => {
         console.log(`✅ Rejection notification sent to customer ${normalizedCustomerId}`);
       } catch (error) {
         console.error(`❌ Error rejecting address change:`, error);
-        socket.emit("error", { message: "Failed to reject address change" });
+        socket.emit("call:error", { message: "Failed to reject address change" });
       }
     });
 
@@ -2999,7 +2999,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3069,7 +3069,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const managerEmail = activeCustomerCalls[customerPhone].currentManagerEmail;
@@ -3134,7 +3134,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "No active call to transfer" });
+        return socket.emit("call:error", { message: "No active call to transfer" });
       }
 
       // Check if target manager is available
@@ -3208,11 +3208,11 @@ const handleSocketConnection = async (socket, io) => {
       const transfer = pendingTransfers[transferId];
 
       if (!transfer) {
-        return socket.emit("error", { message: "Transfer request not found or expired" });
+        return socket.emit("call:error", { message: "Transfer request not found or expired" });
       }
 
       if (transfer.targetManagerEmail !== email) {
-        return socket.emit("error", { message: "You are not the target of this transfer" });
+        return socket.emit("call:error", { message: "You are not the target of this transfer" });
       }
 
       const customerPhone = normalizePhone(transfer.customerPhone);
@@ -3220,7 +3220,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!activeCall) {
         delete pendingTransfers[transferId];
-        return socket.emit("error", { message: "Call no longer active" });
+        return socket.emit("call:error", { message: "Call no longer active" });
       }
 
       // Update call with new manager
@@ -3298,7 +3298,7 @@ const handleSocketConnection = async (socket, io) => {
       const transfer = pendingTransfers[transferId];
 
       if (!transfer) {
-        return socket.emit("error", { message: "Transfer request not found or expired" });
+        return socket.emit("call:error", { message: "Transfer request not found or expired" });
       }
 
       // Notify original manager
@@ -3342,7 +3342,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3407,7 +3407,7 @@ const handleSocketConnection = async (socket, io) => {
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3451,7 +3451,7 @@ const handleSocketConnection = async (socket, io) => {
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3496,7 +3496,7 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(rawPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3533,14 +3533,14 @@ const handleSocketConnection = async (socket, io) => {
       const customerPhone = normalizePhone(socket.user.customerPhone);
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "No active call" });
+        return socket.emit("call:error", { message: "No active call" });
       }
 
       const call = activeCustomerCalls[customerPhone];
       const supervisor = call.supervisors?.find(s => s.id === supervisorId);
 
       if (!supervisor) {
-        return socket.emit("error", { message: "Supervisor not found in call" });
+        return socket.emit("call:error", { message: "Supervisor not found in call" });
       }
 
       const whisperReply = {
@@ -3565,7 +3565,7 @@ const handleSocketConnection = async (socket, io) => {
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3619,7 +3619,7 @@ const handleSocketConnection = async (socket, io) => {
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3675,7 +3675,7 @@ const handleSocketConnection = async (socket, io) => {
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        return socket.emit("error", { message: "Call not found" });
+        return socket.emit("call:error", { message: "Call not found" });
       }
 
       const call = activeCustomerCalls[customerPhone];
@@ -3728,7 +3728,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3766,7 +3766,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3840,7 +3840,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3868,7 +3868,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3884,7 +3884,7 @@ const handleSocketConnection = async (socket, io) => {
       // Check if customer is still connected
       const customerSocket = io.sockets.sockets.get(customerSocketId);
       if (!customerSocket) {
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "Customer has disconnected",
         });
       }
@@ -3909,7 +3909,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -3932,7 +3932,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", {
+        return socket.emit("call:error", {
           message: "No active call with customer",
         });
       }
@@ -4075,7 +4075,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", { message: "No active call with customer" });
+        return socket.emit("call:error", { message: "No active call with customer" });
       }
 
       const { verificationStatus } = data;
@@ -4113,7 +4113,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("error", { message: "No active call with customer" });
+        return socket.emit("call:error", { message: "No active call with customer" });
       }
 
       const { decision, aiRecommendation, similarity, confidence, managerOverride } = data;
@@ -4217,7 +4217,7 @@ const handleSocketConnection = async (socket, io) => {
 
         if (!customerPhone || !activeCustomerCalls[customerPhone]) {
           console.log(`⚠️ No active call found for chat message from manager ${email}`);
-          return socket.emit("error", { message: "No active call with customer" });
+          return socket.emit("call:error", { message: "No active call with customer" });
         }
 
         // Increment chat message count
@@ -4247,7 +4247,7 @@ const handleSocketConnection = async (socket, io) => {
 
         if (!activeCall || !activeCall.currentManagerEmail) {
           console.log(`⚠️ No active call found for chat message from customer ${normalizedPhone}`);
-          return socket.emit("error", { message: "No active call with manager" });
+          return socket.emit("call:error", { message: "No active call with manager" });
         }
 
         // Increment chat message count
@@ -4568,7 +4568,7 @@ const handleSocketConnection = async (socket, io) => {
       console.error(`❌ Socket error: ${socketId} - ${error.message}`);
     });
   } catch (error) {
-    socket.emit("error", { message: error.message });
+    socket.emit("call:error", { message: error.message });
     socket.disconnect(true);
   }
 };
