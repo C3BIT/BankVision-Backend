@@ -494,34 +494,55 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   // Address type codes: 1 = present, 3 = permanent
   const addressTypeCode = addressType === "permanent" ? 3 : 1;
 
+  const districtId = parseInt(
+    addressType === "permanent" ? (cust.permanentDistrict || "0") : (cust.presentDistrict || "0"), 10
+  );
+  const subDistrictId = parseInt(
+    addressType === "permanent" ? (cust.permanentThana || "0") : (cust.presentThana || "0"), 10
+  );
+
   const payload = {
     refNo: refNo(),
-    channelId: CBS_CHANNEL_ID,
+    channelId: "102",
     serviceRequest: {
       subtype: "2",
       name: cust.fullName || "",
       mobile: cust.mobile || "",
       nid: cust.nidNum || "",
+      address: "",
+      gender: "",
       acc_number: accountNumber,
+      account_type: "",
+      branch: "",
+      profession: "",
+      source_name: "",
+      employee_id: "",
+      user_id: "",
+      purpose: "",
+      checklist: "",
+      company_id: 1,
+      ApplicantImage: "",
       address_details: [
         {
           type: addressTypeCode,
-          district: parseInt(
-            addressType === "permanent"
-              ? (cust.permanentDistrict || "0")
-              : (cust.presentDistrict || "0"),
-            10
-          ),
-          sub_district: parseInt(
-            addressType === "permanent"
-              ? (cust.permanentThana || "0")
-              : (cust.presentThana || "0"),
-            10
-          ),
+          district: districtId,
+          sub_district: subDistrictId,
           land_mark: newAddress,
           addressshow: newAddress,
           address: newAddress,
           remarks: "",
+          nature_of_bussiness: "",
+          othertype: null,
+          designation: "",
+          cell: "",
+          branch: "",
+          account: "",
+          relation: "",
+          name: "",
+          contact_person: "",
+          name_organization: "",
+          contact_person_cell: "",
+          contact_person_relation: "",
           Images: [],
         },
       ],
