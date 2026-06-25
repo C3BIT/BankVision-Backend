@@ -17,6 +17,7 @@ const {
   CBS_URL_CUSTOMER_CARDS,
   CBS_URL_CUSTOMER_SIGNATURE,
   CBS_URL_SET_ACCOUNT_ACTIVE,
+  CBS_URL_SAVE_ADDRESS,
   CBS_SMS_USERNAME,
   CBS_SMS_PASSWORD,
   CBS_SMS_CHANNEL_ID,
@@ -483,45 +484,66 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   const v = await verifyOtp(requestId, otp);
   if (!v.verified) return v;
 
-  // Fetch current addresses so CBS does not clear the one we are NOT changing
+  // Fetch current CBS data to get district/thana codes for the unchanged address type
   const detail = await _accountDetail(accountNumber);
   const cust = detail?.customerDetailsModel || {};
-  const currentPresent1  = cust.presentAddress1   || "";
-  const currentPresent2  = cust.presentAddress2   || "";
-  const currentPermanent1 = cust.permanentAddress1 || "";
-  const currentPermanent2 = cust.permanentAddress2 || "";
-  const currentPresent   = [currentPresent1,   currentPresent2].filter(Boolean).join(", ");
-  const currentPermanent = [currentPermanent1, currentPermanent2].filter(Boolean).join(", ");
 
-  console.log(`[CBS Addr] Updating ${addressType} for ${accountNumber}`);
-  console.log(`[CBS Addr] Current present:   add1="${currentPresent1}" add2="${currentPresent2}"`);
-  console.log(`[CBS Addr] Current permanent: add1="${currentPermanent1}" add2="${currentPermanent2}"`);
+  console.log(`[CBS Addr] Updating ${addressType} for ${accountNumber} via SaveAddressInfo`);
   console.log(`[CBS Addr] New address: "${newAddress}"`);
 
-  // When clearing add2 for the updated address type, send a single space rather than
-  // empty string — CBS ignores "" and leaves the old value; " " overwrites it (trimmed
-  // out on readback via the filter in mapDetail).
-  // Preserve the OTHER address type using the original individual fields (not the joined
-  // string) to avoid duplicating add2 on the next readback.
-  const fields = addressType === "permanent"
-    ? {
-        p_permanent_add1: newAddress,      p_permanent_add2: " ",
-        p_present_add1:   currentPresent1, p_present_add2: currentPresent2,
-      }
-    : {
-        p_present_add1:   newAddress,       p_present_add2: " ",
-        p_permanent_add1: currentPermanent1, p_permanent_add2: currentPermanent2,
-      };
+  // Address type codes: 1 = present, 3 = permanent
+  const addressTypeCode = addressType === "permanent" ? 3 : 1;
 
-  console.log(`[CBS Addr] Sending fields:`, JSON.stringify(fields));
-  await _commitUpdate(accountNumber, fields);
+  const payload = {
+    refNo: refNo(),
+    channelId: CBS_CHANNEL_ID,
+    serviceRequest: {
+      subtype: "2",
+      name: cust.fullName || "",
+      mobile: cust.mobile || "",
+      nid: cust.nidNum || "",
+      acc_number: accountNumber,
+      address_details: [
+        {
+          type: addressTypeCode,
+          district: parseInt(
+            addressType === "permanent"
+              ? (cust.permanentDistrict || "0")
+              : (cust.presentDistrict || "0"),
+            10
+          ),
+          sub_district: parseInt(
+            addressType === "permanent"
+              ? (cust.permanentThana || "0")
+              : (cust.presentThana || "0"),
+            10
+          ),
+          land_mark: newAddress,
+          addressshow: newAddress,
+          address: newAddress,
+          remarks: "",
+          Images: [],
+        },
+      ],
+    },
+  };
 
-  // Verify what CBS now has
-  const afterDetail = await _accountDetail(accountNumber);
-  const afterCust = afterDetail?.customerDetailsModel || {};
-  console.log(`[CBS Addr] After update - present:   add1="${afterCust.presentAddress1}" add2="${afterCust.presentAddress2}"`);
-  console.log(`[CBS Addr] After update - permanent: add1="${afterCust.permanentAddress1}" add2="${afterCust.permanentAddress2}"`);
+  console.log(`[CBS Addr] SaveAddressInfo payload:`, JSON.stringify(payload));
 
+  const res = await axios.post(CBS_URL_SAVE_ADDRESS, payload, {
+    timeout: 15000,
+    httpsAgent: new (require("https").Agent)({ rejectUnauthorized: false }),
+    auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
+  });
+
+  const data = res.data;
+  if (data.resCode !== "000" || data.serviceResponse?.ResponseCode !== "000") {
+    const msg = data.serviceResponse?.ResponseMessage || data.resMsg || "CBS address update failed";
+    console.error(`[CBS Addr] SaveAddressInfo failed: ${msg}`);
+    throw new Error(msg);
+  }
+
+  console.log(`[CBS Addr] SaveAddressInfo success for ${accountNumber}`);
   pendingRequests.delete(requestId);
   return { success: true, message: "Address updated successfully in CBS", addressType };
 };

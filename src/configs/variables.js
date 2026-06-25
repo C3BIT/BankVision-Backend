@@ -108,6 +108,9 @@ module.exports = {
   // API 13 — setAccountActive
   CBS_URL_SET_ACCOUNT_ACTIVE: process.env.CBS_URL_SET_ACCOUNT_ACTIVE ||
     `${_cbsCoreUrl}/coreMiddleware/cbs/setAccountActive`,
+  // API 14 — SaveAddressInfo
+  CBS_URL_SAVE_ADDRESS: process.env.CBS_URL_SAVE_ADDRESS ||
+    `${_cbsCoreUrl}/coreMiddleware/utility/common/SaveAddressInfo`,
 
   // MTB CBS — SMS settings
   CBS_SMS_USERNAME: process.env.CBS_SMS_USERNAME || "commonsmsuser",
