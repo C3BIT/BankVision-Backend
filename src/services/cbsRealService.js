@@ -160,12 +160,10 @@ const lookupCustomerByPhone = async (phone) => {
   }
 
   const firstAccNo = linked && linked.length > 0 ? linked[0].accNo : null;
-  const [profileImage, signatureImage] = firstAccNo
-    ? await Promise.all([
-        getCustomerPhoto(firstAccNo).catch(() => null),
-        getCustomerSignature(firstAccNo).catch(() => null),
-      ])
-    : [null, null];
+  const [profileImage, signatureImage] = await Promise.all([
+    getCustomerPhoto(cif).catch(() => null),
+    firstAccNo ? getCustomerSignature(firstAccNo).catch(() => null) : null,
+  ]);
 
   if (!detail) {
     return {
