@@ -3,7 +3,7 @@ const { transporter } = require("../configs/mail_smtp");
 const {
   emailHost, emailPort, emailId, emailPassword,
   SMS_API_KEY, SMS_API_URL,
-  CBS_SMS_URL, CBS_SMS_USERNAME, CBS_SMS_PASSWORD, CBS_SMS_CHANNEL_ID,
+  CBS_SMS_URL, CBS_SMS_USERNAME, CBS_SMS_PASSWORD, CBS_SMS_CHANNEL_ID, CBS_SMS_EVENT,
   CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID, CBS_FROM_EMAIL, CBS_FROM_EMAIL_DISPLAY_NAME,
 } = require("../configs/variables");
 const { generateOTP } = require("../utils/otpCode");
@@ -195,7 +195,7 @@ const sendtPhoneOtp = async (phone) => {
         CBS_SMS_URL,
         {
           channelId: CBS_SMS_CHANNEL_ID || "101",
-          smsEvent: "OTP",
+          smsEvent: CBS_SMS_EVENT || "PIN",
           smsContent: message,
           mobileNo: String(phone).replace(/^(\+88|88)/, ""),
           refNo: `OTP-${Date.now()}`,
@@ -277,7 +277,7 @@ const sendExternalPhoneOtp = async (phone, externalPhone) => {
         CBS_SMS_URL,
         {
           channelId: CBS_SMS_CHANNEL_ID || "101",
-          smsEvent: "OTP",
+          smsEvent: CBS_SMS_EVENT || "PIN",
           smsContent: message,
           mobileNo: String(externalPhone).replace(/^(\+88|88)/, ""),
           refNo: `EXT-OTP-${Date.now()}`,
