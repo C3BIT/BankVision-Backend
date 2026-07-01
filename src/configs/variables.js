@@ -25,9 +25,7 @@ module.exports = {
   DB_HOST: process.env.DB_HOST,
   DB_PORT: process.env.DB_PORT || 3306,
 
-  // SMS & Face APIs
-  SMS_API_KEY: process.env.SMS_API_KEY,
-  SMS_API_URL: process.env.SMS_API_URL || "https://api.sms.net.bd/sendsms",
+  // Face APIs
   MXFACE_KEY: process.env.MXFACE_KEY,
   MXFACE_API_URL: process.env.MXFACE_API_URL || "https://faceapi.mxface.ai/api/v3/face/",
 
@@ -89,7 +87,7 @@ module.exports = {
     `${_cbsCoreUrl}/coreMiddleware/notify/sendSMS`,
   // API 07 — getDebitCardEmailMobile
   CBS_CARD_URL: process.env.CBS_CARD_URL ||
-    `${_cbsCoreUrl}/card/getDebitCardEmailMobile`,
+    `${_cbsCoreUrl}/coreMiddleware/card/getDebitCardEmailMobile`,
   // API 08 — updateOMSCustomerEmailMobile
   CBS_OMS_URL: process.env.CBS_OMS_URL ||
     `${_cbsCoreUrl}/coreMiddleware/card/updateOMSCustomerEmailMobile`,
