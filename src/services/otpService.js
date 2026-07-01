@@ -4,7 +4,8 @@ const {
   emailHost, emailPort, emailId, emailPassword,
   SMS_API_KEY, SMS_API_URL,
   CBS_SMS_URL, CBS_SMS_USERNAME, CBS_SMS_PASSWORD, CBS_SMS_CHANNEL_ID, CBS_SMS_EVENT,
-  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID, CBS_FROM_EMAIL, CBS_FROM_EMAIL_DISPLAY_NAME,
+  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID, CBS_FROM_EMAIL, CBS_FROM_EMAIL_DISPLAY_NAME, CBS_EMAIL_EVENT,
+  CBS_USERNAME, CBS_PASSWORD,
 } = require("../configs/variables");
 const { generateOTP } = require("../utils/otpCode");
 const axios = require("axios");
@@ -59,7 +60,7 @@ const sendOTP = async (receiverEmail) => {
         {
           fromEmailDisplayName: CBS_FROM_EMAIL_DISPLAY_NAME,
           refNo: `OTP-${Date.now()}`,
-          emailEvent: "OTP",
+          emailEvent: CBS_EMAIL_EVENT || "OTP",
           emailContent: `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`,
           emailSubject: OTP_SUBJECT,
           email: receiverEmail,
@@ -67,7 +68,10 @@ const sendOTP = async (receiverEmail) => {
           channelId: CBS_EMAIL_CHANNEL_ID || "101",
           fromEmail: CBS_FROM_EMAIL,
         },
-        { timeout: 8000 }
+        {
+          timeout: 8000,
+          auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
+        }
       );
       console.log(`✅ CBS email OTP sent to ${otpKey}`);
       return otp;
