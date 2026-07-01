@@ -1,6 +1,5 @@
 const sequelize = require('../configs/sequelize');
 const { callQueue } = require('../services/callQueueService');
-const { transporter } = require('../configs/mail_smtp');
 
 const getHealth = async (req, res) => {
   try {
@@ -40,19 +39,6 @@ const getHealth = async (req, res) => {
       console.error("Redis health check failed:", err.message);
       redisStatus = "disconnected";
     }
-    // Check Email (SMTP) status
-    let emailStatus = "connected";
-    if (transporter) {
-      try {
-        await transporter.verify();
-      } catch (err) {
-        console.error("SMTP health check failed:", err.message);
-        emailStatus = "disconnected";
-      }
-    } else {
-      emailStatus = "not_configured";
-    }
-
     const healthStatus = {
       status: (dbStatus === "connected" && redisStatus === "connected") ? "success" : "degraded",
       message: "System health check completed",
@@ -62,7 +48,6 @@ const getHealth = async (req, res) => {
         services: {
           database: dbStatus,
           redis: redisStatus,
-          email: emailStatus
         }
       },
     };

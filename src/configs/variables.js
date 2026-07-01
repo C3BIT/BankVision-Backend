@@ -12,12 +12,6 @@ module.exports = {
   })(),
   JWT_EXPIRATION: process.env.JWT_EXPIRATION,
 
-  // Email config
-  emailHost: process.env.EMAIL_HOST,
-  emailPort: process.env.EMAIL_PORT,
-  emailId: process.env.EMAIL_ID,
-  emailPassword: process.env.EMAIL_PASSWORD,
-
   // DB config
   DB_NAME: process.env.DB_NAME,
   DB_USER: process.env.DB_USER,

@@ -1,16 +1,9 @@
-/**
- * Email Service
- * Handles sending various email notifications
- */
-const { transporter } = require("../configs/mail_smtp");
-const { emailId } = require("../configs/variables");
+const axios = require("axios");
+const {
+  CBS_EMAIL_URL, CBS_EMAIL_CHANNEL_ID, CBS_FROM_EMAIL, CBS_FROM_EMAIL_DISPLAY_NAME, CBS_EMAIL_EVENT,
+  CBS_USERNAME, CBS_PASSWORD,
+} = require("../configs/variables");
 
-const EMAIL_SENDER = `"Video Banking Support" <${emailId}>`;
-
-/**
- * Generate a unique reference number
- * Format: VBRM-YYYYMMDD-XXXXX (e.g., VBRM-20251215-A7B2C)
- */
 const generateReferenceNumber = () => {
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
@@ -18,40 +11,41 @@ const generateReferenceNumber = () => {
   return `VBRM-${dateStr}-${randomPart}`;
 };
 
-/**
- * Format duration from seconds to readable string
- */
 const formatDuration = (seconds) => {
   if (!seconds || seconds < 0) return '0 minutes';
-
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-
   const parts = [];
   if (hours > 0) parts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
   if (minutes > 0) parts.push(`${minutes} minute${minutes > 1 ? 's' : ''}`);
   if (secs > 0 && hours === 0) parts.push(`${secs} second${secs > 1 ? 's' : ''}`);
-
   return parts.length > 0 ? parts.join(' ') : '0 minutes';
 };
 
-/**
- * Send post-call summary email to customer
- * @param {object} callData - Call log data
- * @returns {Promise<boolean>} - Success status
- */
+const sendViaCBS = async ({ email, customerName, subject, content, refNo }) => {
+  await axios.post(
+    CBS_EMAIL_URL,
+    {
+      fromEmailDisplayName: CBS_FROM_EMAIL_DISPLAY_NAME,
+      refNo,
+      emailEvent: CBS_EMAIL_EVENT || "OTP",
+      emailContent: content,
+      emailSubject: subject,
+      email,
+      customerName: customerName || "Valued Customer",
+      channelId: CBS_EMAIL_CHANNEL_ID || "101",
+      fromEmail: CBS_FROM_EMAIL,
+    },
+    {
+      timeout: 8000,
+      auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
+    }
+  );
+};
+
 const sendPostCallSummaryEmail = async (callData) => {
-  const {
-    customerEmail,
-    customerName,
-    referenceNumber,
-    managerName,
-    startTime,
-    endTime,
-    duration,
-    status
-  } = callData;
+  const { customerEmail, customerName, referenceNumber, managerName, startTime, duration, status } = callData;
 
   if (!customerEmail) {
     console.log('No customer email provided, skipping summary email');
@@ -59,76 +53,65 @@ const sendPostCallSummaryEmail = async (callData) => {
   }
 
   try {
-    const callDate = new Date(startTime).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+    const callDate = new Date(startTime).toLocaleDateString('en-BD', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const callTime = new Date(startTime).toLocaleTimeString('en-BD', {
+      hour: '2-digit', minute: '2-digit', hour12: true,
     });
 
-    const callTime = new Date(startTime).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    const content =
+      `Dear ${customerName || 'Valued Customer'},\n\n` +
+      `Your video banking session has been completed.\n\n` +
+      `Reference Number: ${referenceNumber}\n` +
+      `Date: ${callDate}\n` +
+      `Time: ${callTime}\n` +
+      `Duration: ${formatDuration(duration)}\n` +
+      `Relationship Manager: ${managerName || 'Our Representative'}\n` +
+      `Status: ${status === 'completed' ? 'Successfully Completed' : status}\n\n` +
+      `Thank you for banking with Mutual Trust Bank.`;
 
-    const mailOptions = {
-      from: EMAIL_SENDER,
-      to: customerEmail,
+    await sendViaCBS({
+      email: customerEmail,
+      customerName,
       subject: `Video Banking Session Summary - Ref: ${referenceNumber}`,
-      template: 'callSummary',
-      context: {
-        customerName: customerName || 'Valued Customer',
-        referenceNumber,
-        callDate,
-        callTime,
-        duration: formatDuration(duration),
-        managerName: managerName || 'Our Representative',
-        status: status === 'completed' ? 'Successfully Completed' : status,
-        year: new Date().getFullYear()
-      }
-    };
+      content,
+      refNo: referenceNumber,
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log(`Post-call summary email sent to ${customerEmail} - Ref: ${referenceNumber}`);
+    console.log(`✅ Post-call summary sent to ${customerEmail} - Ref: ${referenceNumber}`);
     return true;
   } catch (error) {
-    console.error(`Failed to send post-call summary email: ${error.message}`);
+    console.error(`❌ Failed to send post-call summary email: ${error.message}`);
     return false;
   }
 };
 
-/**
- * Send call reference number during the call
- * @param {object} data - Call data
- * @returns {Promise<boolean>} - Success status
- */
 const sendCallReferenceEmail = async (data) => {
   const { customerEmail, customerName, referenceNumber, managerName } = data;
 
-  if (!customerEmail) {
-    return false;
-  }
+  if (!customerEmail) return false;
 
   try {
-    const mailOptions = {
-      from: EMAIL_SENDER,
-      to: customerEmail,
-      subject: `Your Video Banking Reference Number: ${referenceNumber}`,
-      template: 'callReference',
-      context: {
-        customerName: customerName || 'Valued Customer',
-        referenceNumber,
-        managerName: managerName || 'Our Representative',
-        year: new Date().getFullYear()
-      }
-    };
+    const content =
+      `Dear ${customerName || 'Valued Customer'},\n\n` +
+      `Your video banking session reference number is: ${referenceNumber}\n\n` +
+      `Relationship Manager: ${managerName || 'Our Representative'}\n\n` +
+      `Please keep this reference number for your records.\n\n` +
+      `Thank you for banking with Mutual Trust Bank.`;
 
-    await transporter.sendMail(mailOptions);
-    console.log(`Reference number email sent to ${customerEmail}`);
+    await sendViaCBS({
+      email: customerEmail,
+      customerName,
+      subject: `Your Video Banking Reference Number: ${referenceNumber}`,
+      content,
+      refNo: referenceNumber,
+    });
+
+    console.log(`✅ Reference email sent to ${customerEmail}`);
     return true;
   } catch (error) {
-    console.error(`Failed to send reference email: ${error.message}`);
+    console.error(`❌ Failed to send reference email: ${error.message}`);
     return false;
   }
 };
@@ -137,5 +120,5 @@ module.exports = {
   generateReferenceNumber,
   formatDuration,
   sendPostCallSummaryEmail,
-  sendCallReferenceEmail
+  sendCallReferenceEmail,
 };
