@@ -811,16 +811,19 @@ const handleSocketConnection = async (socket, io) => {
         return socket.emit("call:error", { message: "Customer not found in queue" });
       }
 
+      // Check socket BEFORE removing from queue so a disconnected customer
+      // stays in the queue list until the disconnect handler cleans it up,
+      // allowing the manager to see the stale entry disappear rather than
+      // getting a "not found" error on retry.
+      const customerSocket = io.sockets.sockets.get(queueEntry.socketId);
+      if (!customerSocket) {
+        return socket.emit("call:error", { message: "Customer has disconnected" });
+      }
+
       // Remove from BullMQ queue
       const removed = await removeCustomerFromQueue(customerPhone);
       if (!removed) {
         return socket.emit("call:error", { message: "Failed to remove customer from queue" });
-      }
-
-      // Check if customer is still connected
-      const customerSocket = io.sockets.sockets.get(queueEntry.socketId);
-      if (!customerSocket) {
-        return socket.emit("call:error", { message: "Customer has disconnected" });
       }
 
       // Initiate call to this customer
