@@ -15,6 +15,7 @@ const recordingRoute = require("./recording.route");
 const callReportRoute = require("./callReport.route");
 const signatureRoute = require("./signature.route");
 const webhookRoute = require("./webhook.route");
+const formsRoute = require("./forms.route");
 const router = express.Router();
 const defaultRoutes = [
   {
@@ -80,6 +81,10 @@ const defaultRoutes = [
   {
     path: "/webhook",
     route: webhookRoute,
+  },
+  {
+    path: "/forms",
+    route: formsRoute,
   },
 ];
 

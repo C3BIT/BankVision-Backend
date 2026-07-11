@@ -221,6 +221,7 @@ async function uploadToStorage(pdfBytes, key) {
     fs.mkdirSync(uploadDir, { recursive: true });
     const filename = path.basename(key);
     fs.writeFileSync(path.join(uploadDir, filename), pdfBytes);
+    // Local: serve via the static /uploads route on the backend
     return `${MINIO_PUBLIC_URL}/uploads/forms/${filename}`;
   }
 
@@ -233,7 +234,9 @@ async function uploadToStorage(pdfBytes, key) {
     ContentType: 'application/pdf',
     ContentDisposition: `inline; filename="${path.basename(key)}"`,
   }));
-  return `${MINIO_PUBLIC_URL}/${BUCKET_NAME}/${key}`;
+  // Return the backend presigned-URL endpoint — never a direct public S3 link.
+  // The /api/forms/download route generates a time-limited signed URL on demand.
+  return `/api/forms/download?key=${encodeURIComponent(key)}`;
 }
 
 /**
