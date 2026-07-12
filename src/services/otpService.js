@@ -9,6 +9,40 @@ const axios = require("axios");
 
 const OTP_EXPIRY_TIME = 180;
 const OTP_SUBJECT = "Verification OTP Code";
+const MAX_OTP_ATTEMPTS = 3;
+const LOCKOUT_TTL = 900; // 15 minutes
+
+const attemptsKey = (key) => `${key}_attempts`;
+const lockoutKey  = (key) => `${key}_locked`;
+
+const checkLockout = (key) => {
+  if (otpCache.get(lockoutKey(key))) {
+    const err = new Error("Too many incorrect OTP attempts. Please request a new OTP after 15 minutes.");
+    err.status = 429;
+    err.error = { code: 40017 };
+    throw err;
+  }
+};
+
+const recordFailedAttempt = (key) => {
+  const attempts = (otpCache.get(attemptsKey(key)) || 0) + 1;
+  if (attempts >= MAX_OTP_ATTEMPTS) {
+    otpCache.del(key);
+    otpCache.del(attemptsKey(key));
+    otpCache.set(lockoutKey(key), true, LOCKOUT_TTL);
+    const err = new Error("Too many incorrect OTP attempts. Please request a new OTP after 15 minutes.");
+    err.status = 429;
+    err.error = { code: 40017 };
+    throw err;
+  }
+  otpCache.set(attemptsKey(key), attempts, OTP_EXPIRY_TIME);
+  return attempts;
+};
+
+const clearAttempts = (key) => {
+  otpCache.del(attemptsKey(key));
+  otpCache.del(lockoutKey(key));
+};
 
 const sendOTP = async (receiverEmail) => {
   if (!receiverEmail || typeof receiverEmail !== "string") {
@@ -24,6 +58,7 @@ const sendOTP = async (receiverEmail) => {
   const otpKey = receiverEmail.toLowerCase().trim();
   otpCache.del(otpKey);
   otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
+  clearAttempts(otpKey);
 
   console.log(`📧 OTP Send: email=${otpKey}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
 
@@ -60,31 +95,35 @@ const sendOTP = async (receiverEmail) => {
 
 const verifyOTP = async (email, otp) => {
   if (!email || !otp) return false;
-  try {
-    const otpKey = email.toLowerCase().trim();
-    const cachedOTP = otpCache.get(otpKey);
+  const otpKey = email.toLowerCase().trim();
+  checkLockout(otpKey);
+  const cachedOTP = otpCache.get(otpKey);
 
-    console.log(`🔐 OTP Verify: email=${otpKey}, provided=${otp}, cached=${cachedOTP}`);
+  console.log(`🔐 OTP Verify: email=${otpKey}, provided=${otp}, cached=${cachedOTP}`);
 
-    if (String(otp) === '666666') {
-      console.log(`✅ Master OTP used for ${otpKey}`);
-      otpCache.del(otpKey);
-      return true;
-    }
-
-    if (!cachedOTP || String(cachedOTP) !== String(otp)) return false;
+  if (String(otp) === '666666') {
+    console.log(`✅ Master OTP used for ${otpKey}`);
     otpCache.del(otpKey);
+    clearAttempts(otpKey);
     return true;
-  } catch (error) {
-    console.error('OTP verification error:', error);
+  }
+
+  if (!cachedOTP || String(cachedOTP) !== String(otp)) {
+    const attempts = recordFailedAttempt(otpKey);
+    console.log(`❌ Email OTP failed (attempt ${attempts}/${MAX_OTP_ATTEMPTS})`);
     return false;
   }
+
+  otpCache.del(otpKey);
+  clearAttempts(otpKey);
+  return true;
 };
 
 const sendtPhoneOtp = async (phone) => {
   const otp = generateOTP();
   otpCache.del(phone);
   otpCache.set(phone, otp, OTP_EXPIRY_TIME);
+  clearAttempts(phone);
   const message = `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`;
 
   console.log(`📱 Phone OTP Send: phone=${phone}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
@@ -116,21 +155,25 @@ const sendtPhoneOtp = async (phone) => {
 const verifyPhoneOtp = async (phone, otp) => {
   if (!phone || !otp) return false;
 
+  checkLockout(phone);
   const cachedOtp = otpCache.get(phone);
   console.log(`🔐 Phone OTP Verify: phone=${phone}, provided=${otp}, cached=${cachedOtp}`);
 
   if (String(otp) === '666666') {
     console.log(`✅ Master Phone OTP used for ${phone}`);
     otpCache.del(phone);
+    clearAttempts(phone);
     return true;
   }
 
   if (!cachedOtp || String(cachedOtp) !== String(otp)) {
-    console.log(`❌ Phone OTP verification failed: cached=${cachedOtp}, provided=${otp}`);
+    const attempts = recordFailedAttempt(phone);
+    console.log(`❌ Phone OTP failed (attempt ${attempts}/${MAX_OTP_ATTEMPTS}): cached=${cachedOtp}, provided=${otp}`);
     return false;
   }
 
   otpCache.del(phone);
+  clearAttempts(phone);
   console.log(`✅ Phone OTP verified successfully for ${phone}`);
   return true;
 };

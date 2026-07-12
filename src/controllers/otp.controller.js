@@ -54,15 +54,16 @@ const sendPhoneOtpController = async (req, res) => {
     }
 
     // When used for phone change, check if number is already registered
-    if (checkDuplicate) {
+    // allowDuplicate: true lets a customer keep the same number across multiple accounts
+    if (checkDuplicate && !req.body.allowDuplicate) {
       const { getAccountsListByPhone } = require("../services/customerService");
       const existingAccounts = await getAccountsListByPhone(phone);
       if (existingAccounts && existingAccounts.length > 0) {
         throw Object.assign(
-          new Error("This phone number is already registered to another account"),
+          new Error("This phone number is already registered to another account. If the customer needs to keep this number across accounts, enable override."),
           {
-            status: statusCodes.BAD_REQUEST,
-            error: { code: 40015 },
+            status: statusCodes.CONFLICT,
+            error: { code: 40015, allowOverride: true },
           }
         );
       }
@@ -97,7 +98,7 @@ const verifyPhoneOtpController = async (req, res) => {
         error: { code: 40011 },
       });
     }
-    res.success({ isVerified }, "Verificaion Successfull.");
+    res.success({ isVerified }, "Verification Successful.");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }

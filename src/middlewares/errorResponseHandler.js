@@ -115,6 +115,13 @@ const errorResponseHandler = (err, req, res, next) => {
         error
       );
       break;
+    case 429:
+      res.tooManyRequests(
+        { title: message, instance, ...data },
+        message || error.message,
+        error
+      );
+      break;
     case 422:
       res.badRequest(
         { title: message || "Something went wrong.", instance, ...data },

@@ -2600,6 +2600,7 @@ const handleSocketConnection = async (socket, io) => {
           ? `Manager sent OTP to new ${changeType} and verified directly on behalf of customer. Account: ${accountNumber || 'N/A'}.`
           : `Manager approved ${changeType} change via approval dialog. Account: ${accountNumber || 'N/A'}.`;
         const crPhoneEmail = await ChangeRequest.create({
+          referenceNumber: activeCustomerCalls[normalizedCustomerId]?.referenceNumber || null,
           customerId,
           managerId: socket.user.id,
           changeType,
@@ -2676,6 +2677,7 @@ const handleSocketConnection = async (socket, io) => {
       try {
         // Create audit record
         await ChangeRequest.create({
+          referenceNumber: activeCustomerCalls[normalizedCustomerId]?.referenceNumber || null,
           customerId,
           managerId: socket.user.id,
           changeType,
@@ -2731,6 +2733,7 @@ const handleSocketConnection = async (socket, io) => {
 
         // Save audit record BEFORE CBS call — always captured regardless of CBS outcome
         const crAddress = await ChangeRequest.create({
+          referenceNumber: activeCustomerCalls[normalizedCustomerId]?.referenceNumber || null,
           customerId,
           managerId: socket.user.id,
           changeType: 'address',
@@ -2800,6 +2803,7 @@ const handleSocketConnection = async (socket, io) => {
       try {
         // Create audit record
         await ChangeRequest.create({
+          referenceNumber: activeCustomerCalls[normalizedCustomerId]?.referenceNumber || null,
           customerId,
           managerId: socket.user.id,
           changeType: 'address',
@@ -2877,6 +2881,7 @@ const handleSocketConnection = async (socket, io) => {
         });
 
         const crActivation = await ChangeRequest.create({
+          referenceNumber: activeCustomerCalls[customerPhone]?.referenceNumber || null,
           customerId: customerPhone,
           managerId: socket.user.id,
           changeType: 'account_activation',
@@ -2943,6 +2948,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const { ChangeRequest } = require("../models/ChangeRequest");
       await ChangeRequest.create({
+        referenceNumber: activeCustomerCalls[customerPhone]?.referenceNumber || null,
         customerId: customerPhone,
         managerId: socket.user.id,
         changeType: 'account_activation',

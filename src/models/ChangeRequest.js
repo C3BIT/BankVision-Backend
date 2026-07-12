@@ -7,6 +7,11 @@ const ChangeRequest = sequelize.define('ChangeRequest', {
     primaryKey: true,
     autoIncrement: true,
   },
+  referenceNumber: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    comment: 'Call reference number linking this change to a specific video call session',
+  },
   customerId: {
     type: DataTypes.STRING(50),
     allowNull: false,

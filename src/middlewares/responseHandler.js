@@ -108,6 +108,11 @@ const responseHandler = () => {
       res.fail(data, message, error);
     };
 
+    res.tooManyRequests = (data, message, error) => {
+      res.status(statusCodes.TOO_MANY_REQUESTS);
+      res.fail(data, message, error);
+    };
+
     res.serviceUnavailable = (code, message, error) => {
       res.status(statusCodes.SERVICE_UNAVAILABLE);
       res.error(code, message, error);
