@@ -12,6 +12,7 @@ const {
 const {
   addCustomerToQueue,
   removeCustomerFromQueue,
+  updateQueueEntrySocketId,
   getQueuePosition,
   getQueuedCustomers,
   getQueueStats,
@@ -129,6 +130,16 @@ const handleSocketConnection = async (socket, io) => {
             }
           }
         }
+
+        // Customer may instead (or additionally) be waiting in the BullMQ
+        // queue rather than in an active call — that job's stored socketId
+        // goes stale on every backend restart since Socket.IO state is
+        // in-memory but BullMQ jobs persist in Redis. Refresh it so a
+        // manager's later "pick from queue" doesn't wrongly report the
+        // customer as disconnected.
+        updateQueueEntrySocketId(normalizedPhone, socketId).catch(err => {
+          console.error(`❌ Failed to refresh queue socketId for ${normalizedPhone}:`, err.message);
+        });
       } else if (role === "manager" && email) {
         // Find if this manager has any active calls and update their socketId
         let hasActiveCall = false;
@@ -365,8 +376,10 @@ const handleSocketConnection = async (socket, io) => {
           console.log(`📣 Notifying manager ${managerEmail} (socket: ${managerSocketId}) about customer ${phone} ending call`);
 
           if (managerSocketId) {
-            const managerSocket = io.sockets.sockets.get(managerSocketId);
-            if (managerSocket && managerSocket.connected) {
+            // fetchSockets() is cluster-aware (via the Redis adapter); io.sockets.sockets.get()
+            // only sees sockets local to this pod, causing false negatives with multiple replicas.
+            const managerSockets = await io.in(managerSocketId).fetchSockets();
+            if (managerSockets.length > 0) {
               const eventData = {
                 customerId: phone,
                 customerName: name || null,
@@ -379,7 +392,6 @@ const handleSocketConnection = async (socket, io) => {
               console.log(`   Event data:`, JSON.stringify(eventData));
             } else {
               console.log(`⚠️ Manager socket ${managerSocketId} not found or not connected`);
-              console.log(`   Socket exists: ${!!managerSocket}, Connected: ${managerSocket?.connected}`);
             }
           } else {
             console.log(`⚠️ No manager socket ID found for customer ${phone}`);
@@ -441,11 +453,6 @@ const handleSocketConnection = async (socket, io) => {
             console.error("❌ Error completing call log:", err);
           }
         }
-
-        // Get manager info before clearing call state
-        const managerEmail = activeCustomerCalls[phone]?.currentManagerEmail;
-        const managerSocketId = activeCustomerCalls[phone]?.managerSocketId;
-        const managerSocket = managerSocketId ? io.sockets.sockets.get(managerSocketId) : null;
 
         // Clear call and reset manager status
         await clearActiveCustomerCall(phone, io);
@@ -534,15 +541,16 @@ const handleSocketConnection = async (socket, io) => {
 
           // Notify customer that manager ended the call
           const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
-          const customerSocket = io.sockets.sockets.get(customerSocketId);
+          // fetchSockets() is cluster-aware (via the Redis adapter); io.sockets.sockets.get()
+          // only sees sockets local to this pod, causing false negatives with multiple replicas.
+          const customerSockets = await io.in(customerSocketId).fetchSockets();
 
           console.log(`📤 Preparing to send call:ended to customer ${customerPhone}`);
           console.log(`   Customer socket ID: ${customerSocketId}`);
-          console.log(`   Customer socket exists: ${!!customerSocket}`);
-          console.log(`   Customer socket connected: ${customerSocket?.connected || false}`);
+          console.log(`   Customer socket connected: ${customerSockets.length > 0}`);
 
-          if (customerSocket && customerSocket.connected) {
-            customerSocket.emit("call:ended", {
+          if (customerSockets.length > 0) {
+            io.to(customerSocketId).emit("call:ended", {
               managerId: email,
               managerName: name || null,
               endedBy: "manager"
@@ -815,8 +823,12 @@ const handleSocketConnection = async (socket, io) => {
       // stays in the queue list until the disconnect handler cleans it up,
       // allowing the manager to see the stale entry disappear rather than
       // getting a "not found" error on retry.
-      const customerSocket = io.sockets.sockets.get(queueEntry.socketId);
-      if (!customerSocket) {
+      // Uses fetchSockets() (cluster-aware via the Redis adapter) instead of
+      // io.sockets.sockets.get(), which only sees sockets local to this pod —
+      // with multiple backend replicas the customer's socket is often on a
+      // different pod than the manager's, causing false "disconnected" errors.
+      const customerSockets = await io.in(queueEntry.socketId).fetchSockets();
+      if (customerSockets.length === 0) {
         return socket.emit("call:error", { message: "Customer has disconnected" });
       }
 
@@ -1035,8 +1047,9 @@ const handleSocketConnection = async (socket, io) => {
 
       let customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
 
-      // Validate stored socket is still active; if stale, search by phone
-      if (!customerSocketId || !io.sockets.sockets.get(customerSocketId)) {
+      // Validate stored socket is still active (cluster-aware, via Redis adapter);
+      // if stale, search local sockets by phone as a last resort.
+      if (!customerSocketId || (await io.in(customerSocketId).fetchSockets()).length === 0) {
         console.log(`⚠️ Stored customer socket ${customerSocketId} is stale, searching for active socket by phone ${customerPhone}`);
         for (const [, s] of io.sockets.sockets) {
           if (s.user && normalizePhone(s.user.phone) === customerPhone) {
@@ -1162,8 +1175,9 @@ const handleSocketConnection = async (socket, io) => {
 
       let customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
 
-      // Validate stored socket is still active; if stale, search by phone
-      if (!customerSocketId || !io.sockets.sockets.get(customerSocketId)) {
+      // Validate stored socket is still active (cluster-aware, via Redis adapter);
+      // if stale, search local sockets by phone as a last resort.
+      if (!customerSocketId || (await io.in(customerSocketId).fetchSockets()).length === 0) {
         console.log(`⚠️ Stored customer socket ${customerSocketId} is stale, searching for active socket by phone ${customerPhone}`);
         for (const [, s] of io.sockets.sockets) {
           if (s.user && normalizePhone(s.user.phone) === customerPhone) {
@@ -1873,7 +1887,7 @@ const handleSocketConnection = async (socket, io) => {
     // ============ END EMAIL CHANGE EVENTS ============
 
     // ============ FACE VERIFICATION EVENTS ============
-    socket.on("manager:initiate-face-verification", (data) => {
+    socket.on("manager:initiate-face-verification", async (data) => {
       if (role !== "manager") {
         console.error(`❌ Non-manager attempted to initiate face verification: ${role}`);
         return;
@@ -1908,9 +1922,9 @@ const handleSocketConnection = async (socket, io) => {
         });
       }
 
-      // Check if customer socket is still connected
-      const customerSocket = io.sockets.sockets.get(customerSocketId);
-      if (!customerSocket) {
+      // Check if customer socket is still connected (cluster-aware, via Redis adapter)
+      const customerSockets = await io.in(customerSocketId).fetchSockets();
+      if (customerSockets.length === 0) {
         console.error(`❌ Customer socket ${customerSocketId} is not connected`);
         return socket.emit("manager:face-verification-error", {
           message: "Customer has disconnected.",
@@ -3839,7 +3853,7 @@ const handleSocketConnection = async (socket, io) => {
       );
     });
 
-    socket.on("manager:request-retake-image", (data) => {
+    socket.on("manager:request-retake-image", async (data) => {
       if (role !== "manager") return;
 
       const customerPhone = socket.user.customerPhone;
@@ -3859,9 +3873,9 @@ const handleSocketConnection = async (socket, io) => {
         delete activeCustomerCalls[customerPhone].faceVerificationTimeout;
       }
 
-      // Check if customer is still connected
-      const customerSocket = io.sockets.sockets.get(customerSocketId);
-      if (!customerSocket) {
+      // Check if customer is still connected (cluster-aware, via Redis adapter)
+      const customerSockets = await io.in(customerSocketId).fetchSockets();
+      if (customerSockets.length === 0) {
         return socket.emit("call:error", {
           message: "Customer has disconnected",
         });
@@ -4457,9 +4471,9 @@ const handleSocketConnection = async (socket, io) => {
               }
             }
 
-            const mgr = io.sockets.sockets.get(callEntry.managerSocketId);
-            if (mgr) {
-              mgr.emit("call:ended", {
+            const mgrSockets = await io.in(callEntry.managerSocketId).fetchSockets();
+            if (mgrSockets.length > 0) {
+              io.to(callEntry.managerSocketId).emit("call:ended", {
                 endedBy: "system",
                 reason: "customer_disconnected",
                 message: "Call ended: customer did not reconnect in time.",
@@ -4522,9 +4536,9 @@ const handleSocketConnection = async (socket, io) => {
                 }
               }
 
-              const cSocket = io.sockets.sockets.get(callEntry.customerSocketId);
-              if (cSocket) {
-                cSocket.emit("call:ended", {
+              const cSockets = await io.in(callEntry.customerSocketId).fetchSockets();
+              if (cSockets.length > 0) {
+                io.to(callEntry.customerSocketId).emit("call:ended", {
                   endedBy: "system",
                   reason: "manager_disconnected",
                   message: "Call ended: manager did not reconnect in time.",
@@ -4776,9 +4790,9 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
       return;
     }
 
-    const managerSocket = io.sockets.sockets.get(selectedManager.socketId);
-    if (managerSocket) {
-      managerSocket.emit("call:reassigned", {
+    const managerSockets = await io.in(selectedManager.socketId).fetchSockets();
+    if (managerSockets.length > 0) {
+      io.to(selectedManager.socketId).emit("call:reassigned", {
         message: "Call has been reassigned due to response timeout",
         customerId: normalizedCustomerPhone,
       });
@@ -4977,9 +4991,9 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     `📋 Found customer ${nextInQueue.customerPhone} in queue, broadcasting to ${availableManagers.length} available managers`
   );
 
-  // Check if customer is still connected
-  const customerSocket = io.sockets.sockets.get(nextInQueue.socketId);
-  if (!customerSocket) {
+  // Check if customer is still connected (cluster-aware, via Redis adapter)
+  const customerSockets = await io.in(nextInQueue.socketId).fetchSockets();
+  if (customerSockets.length === 0) {
     console.log(`⚠️ Customer ${nextInQueue.customerPhone} disconnected, removing from queue`);
     await removeCustomerFromQueue(nextInQueue.customerPhone);
     await broadcastQueueAndStatus(io);
@@ -5052,13 +5066,13 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
 
   // BROADCAST: Send call request to all selected managers simultaneously
   for (const manager of selectedManagers) {
-    const mgrSocket = io.sockets.sockets.get(manager.socketId);
-    if (mgrSocket) {
+    const mgrSockets = await io.in(manager.socketId).fetchSockets();
+    if (mgrSockets.length > 0) {
       // CRITICAL: Do NOT set customerPhone here - only accept handler should set it
       // Setting it during broadcast would overwrite active calls
 
       // Send call request with verification info
-      mgrSocket.emit("call:request", {
+      io.to(manager.socketId).emit("call:request", {
         customerId: nextInQueue.customerPhone,
         customerSocketId: nextInQueue.socketId,
         callRoom: roomId,
@@ -5075,7 +5089,7 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
   }
 
   // Notify customer that managers are being notified
-  customerSocket.emit("queue:call-connecting", {
+  io.to(nextInQueue.socketId).emit("queue:call-connecting", {
     managersNotified: selectedManagers.length,
     callRoom: roomId,
     message: `${selectedManagers.length} ${selectedManagers.length === 1 ? 'manager is' : 'managers are'} being notified. Please wait...`
@@ -5098,13 +5112,19 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
 
     // Cancel call requests to all managers
     for (const manager of selectedManagers) {
-      const mgrSocket = io.sockets.sockets.get(manager.socketId);
-      if (mgrSocket) {
-        mgrSocket.emit("call:cancelled", {
+      const mgrSockets = await io.in(manager.socketId).fetchSockets();
+      if (mgrSockets.length > 0) {
+        io.to(manager.socketId).emit("call:cancelled", {
           customerId: nextInQueue.customerPhone,
           reason: "No response - customer re-queued"
         });
-        delete mgrSocket.user.customerPhone;
+      }
+      // Local-only cleanup: this custom socket.user property can't be mutated
+      // cross-pod via fetchSockets(), so this only clears it if the manager's
+      // socket happens to be on this pod. Harmless no-op otherwise.
+      const localMgrSocket = io.sockets.sockets.get(manager.socketId);
+      if (localMgrSocket?.user) {
+        delete localMgrSocket.user.customerPhone;
       }
     }
 
@@ -5174,8 +5194,31 @@ const getOnlineManagersData = () => {
   return getAllManagers();
 };
 
+// Ownership check for CBS controller endpoints: is this manager currently
+// handling a live call with the customer identified by phone/accountNumber?
+// CallLog.customerAccountNumber is never populated by the real call flow, so
+// the in-memory activeCustomerCalls map (which does track both) is the only
+// reliable source of truth for account-number-based endpoints.
+const isManagerAssignedToCustomer = (managerEmail, { phone, accountNumber } = {}) => {
+  if (!managerEmail) return false;
+
+  if (phone) {
+    const call = activeCustomerCalls[normalizePhone(phone)];
+    return !!call && call.currentManagerEmail === managerEmail;
+  }
+
+  if (accountNumber) {
+    return Object.values(activeCustomerCalls).some(
+      (call) => call.currentManagerEmail === managerEmail && call.customerAccountNumber === accountNumber
+    );
+  }
+
+  return false;
+};
+
 module.exports = {
   handleSocketConnection,
   getActiveCallsData,
-  getOnlineManagersData
+  getOnlineManagersData,
+  isManagerAssignedToCustomer
 };
