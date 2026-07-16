@@ -965,7 +965,7 @@ const handleSocketConnection = async (socket, io) => {
       });
 
       // Notify customer that manager accepted
-      customerSocket.emit("call:accepted", {
+      io.to(queueEntry.socketId).emit("call:accepted", {
         managerId: email,
         managerName: name || null,
         ...(socket.user.image && { managerImage: socket.user.image }),
@@ -5143,13 +5143,13 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     await broadcastQueueAndStatus(io);
 
     if (result.success) {
-      customerSocket.emit("queue:added", {
+      io.to(nextInQueue.socketId).emit("queue:added", {
         position: result.queuePosition,
         message: "Managers did not respond. You have been placed back in queue with priority.",
         priority: 'HIGH'
       });
     } else {
-      customerSocket.emit("call:failed", {
+      io.to(nextInQueue.socketId).emit("call:failed", {
         message: "Unable to reconnect your call. Please try again."
       });
     }
