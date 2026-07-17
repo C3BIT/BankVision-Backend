@@ -360,7 +360,7 @@ const resetPasswordController = async (req, res) => {
     await manager.save();
 
     // Invalidate any existing sessions after password change
-    invalidateSession(manager.id);
+    await invalidateSession(manager.id);
 
     // Log password change
     logPasswordChange(req, email, 'password_reset_success');
@@ -378,8 +378,9 @@ const logoutManagerController = async (req, res) => {
     if (managerId) {
       // Log logout
       logLogout(req, req.user, 'manager');
-      invalidateSession(managerId);
+      await invalidateSession(managerId);
     }
+    clearAuthCookie(res);
 
     res.success({}, "Logged out successfully");
   } catch (error) {

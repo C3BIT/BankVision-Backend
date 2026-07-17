@@ -16,11 +16,16 @@ const callReportRoute = require("./callReport.route");
 const signatureRoute = require("./signature.route");
 const webhookRoute = require("./webhook.route");
 const formsRoute = require("./forms.route");
+const captchaRoute = require("./captcha.route");
 const router = express.Router();
 const defaultRoutes = [
   {
     path: "/dev",
     route: devRoute,
+  },
+  {
+    path: "/captcha",
+    route: captchaRoute,
   },
   {
     path: "/otp",

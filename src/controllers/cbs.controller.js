@@ -1,6 +1,35 @@
 const cbsService = require("../services/cbsService");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
+const { isManagerAssignedToCustomer } = require("../services/socketHandler");
+const { getClientIP } = require("../services/loggingService");
+
+// Every CBS endpoint here returns/mutates real customer PII (accounts, cards,
+// loans, contact details). A manager may only touch a customer's data while
+// they have a live call with that customer — checked against the real-time
+// activeCustomerCalls assignment (CallLog.customerAccountNumber is not
+// reliably populated by the real call flow, so it can't be used here).
+const enforceCallOwnership = (req, res, identifiers) => {
+  const managerEmail = req.user?.email;
+  const granted = isManagerAssignedToCustomer(managerEmail, identifiers);
+
+  console.log(
+    `[CBS ACCESS] ${granted ? "GRANTED" : "DENIED"} manager=${managerEmail} ` +
+    `${identifiers.phone ? `phone=${identifiers.phone} ` : ""}` +
+    `${identifiers.accountNumber ? `accountNumber=${identifiers.accountNumber} ` : ""}` +
+    `path=${req.originalUrl} ip=${getClientIP(req)}`
+  );
+
+  if (!granted) {
+    res.status(statusCodes.FORBIDDEN).json({
+      success: false,
+      message: "You do not have an active call with this customer",
+      error: { code: 40302 }
+    });
+  }
+
+  return granted;
+};
 
 /**
  * Customer Lookup by Phone
@@ -16,6 +45,8 @@ const lookupCustomer = async (req, res) => {
         error: { code: 40012 }
       });
     }
+
+    if (!enforceCallOwnership(req, res, { phone })) return;
 
     const result = await cbsService.lookupCustomerByPhone(phone);
     res.success(result, result.found ? "Customer found" : "Customer not found");
@@ -52,6 +83,8 @@ const requestOtp = async (req, res) => {
         error: { code: 40001 }
       });
     }
+
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
 
     const result = await cbsService.requestOtp(accountNumber, type, destination, newValue);
     res.success(result, "OTP request processed");
@@ -104,6 +137,8 @@ const updatePhone = async (req, res) => {
       });
     }
 
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+
     const result = await cbsService.updatePhone(accountNumber, requestId, otp, newPhone);
     res.success(result, result.success ? "Phone updated" : "Update failed");
   } catch (error) {
@@ -125,6 +160,8 @@ const updateEmail = async (req, res) => {
         error: { code: 40001 }
       });
     }
+
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
 
     const result = await cbsService.updateEmail(accountNumber, requestId, otp, newEmail);
     res.success(result, result.success ? "Email updated" : "Update failed");
@@ -148,6 +185,8 @@ const updateAddress = async (req, res) => {
       });
     }
 
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+
     const result = await cbsService.updateAddress(accountNumber, requestId, otp, newAddress, addressType);
     res.success(result, result.success ? "Address updated" : "Update failed");
   } catch (error) {
@@ -170,6 +209,8 @@ const getAccountStatus = async (req, res) => {
       });
     }
 
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+
     const result = await cbsService.getAccountStatus(accountNumber);
     res.success(result, "Account status retrieved");
   } catch (error) {
@@ -191,6 +232,8 @@ const activateAccount = async (req, res) => {
         error: { code: 40001 }
       });
     }
+
+    if (!enforceCallOwnership(req, res, { accountNumber })) return;
 
     const result = await cbsService.activateAccount(accountNumber, requestId, otp, nidNumber);
     res.success(result, result.success ? "Account activated" : "Activation failed");
@@ -244,6 +287,8 @@ const getAccounts = async (req, res) => {
       });
     }
 
+    if (!enforceCallOwnership(req, res, { phone })) return;
+
     const accounts = await cbsService.getAccountsWithDetails(phone);
     res.success({ accounts }, "Accounts retrieved successfully");
   } catch (error) {
@@ -266,6 +311,8 @@ const getCards = async (req, res) => {
       });
     }
 
+    if (!enforceCallOwnership(req, res, { phone })) return;
+
     const cards = await cbsService.getCardsByPhone(phone);
     res.success({ cards }, "Cards retrieved successfully");
   } catch (error) {
@@ -287,6 +334,8 @@ const getLoans = async (req, res) => {
         error: { code: 40012 }
       });
     }
+
+    if (!enforceCallOwnership(req, res, { phone })) return;
 
     const loans = await cbsService.getLoansByPhone(phone);
     res.success({ loans }, "Loans retrieved successfully");

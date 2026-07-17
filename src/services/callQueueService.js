@@ -149,6 +149,32 @@ async function removeCustomerFromQueue(customerPhone) {
 }
 
 /**
+ * Refresh the socketId stored on a customer's queue job.
+ * BullMQ jobs persist in Redis across backend restarts, but the Socket.IO
+ * server is in-memory per-pod — after a restart every queued customer's
+ * browser reconnects with a brand new socket.id while their job still
+ * points at the old (now-nonexistent) socket, causing a manager's later
+ * "pick from queue" to wrongly report the customer as disconnected.
+ * @param {string} customerPhone - Customer phone number
+ * @param {string} newSocketId - The customer's current socket.id
+ * @returns {Promise<boolean>} Whether a matching queue job was updated
+ */
+async function updateQueueEntrySocketId(customerPhone, newSocketId) {
+  try {
+    const jobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
+    const job = jobs.find(j => j.data.customerPhone === customerPhone);
+    if (!job) return false;
+
+    await job.updateData({ ...job.data, socketId: newSocketId });
+    console.log(`♻️ Refreshed queue socketId for ${customerPhone}: ${newSocketId}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to refresh queue entry socketId:', error);
+    return false;
+  }
+}
+
+/**
  * Get queue position for customer
  * @param {string} customerPhone - Customer phone number
  * @returns {Promise<number|null>} Position in queue (1-indexed) or null
@@ -386,6 +412,7 @@ module.exports = {
   queueEvents,
   addCustomerToQueue,
   removeCustomerFromQueue,
+  updateQueueEntrySocketId,
   getQueuePosition,
   getQueueStats,
   getQueuedCustomers,

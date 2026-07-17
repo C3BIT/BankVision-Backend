@@ -3,11 +3,12 @@ const { errorResponseHandler } = require("./errorResponseHandler.js");
 const { jwtSecret } = require("../configs/variables.js");
 const { statusCodes } = require("../utils/statusCodes.js");
 const { getTokenFromRequest } = require("../utils/cookieHelper.js");
+const { getSession, updateSessionActivity } = require("../utils/sessionManager.js");
 
 const isTokenExpired = (expirationTime) =>
   expirationTime <= Math.floor(Date.now() / 1000);
 
-const managerAuthenticateMiddleware = (req, res, next) => {
+const managerAuthenticateMiddleware = async (req, res, next) => {
   try {
     // Get token from cookie or Authorization header (backward compatible)
     const token = getTokenFromRequest(req);
@@ -18,8 +19,9 @@ const managerAuthenticateMiddleware = (req, res, next) => {
       });
     }
 
+    let decoded;
     try {
-      const decoded = jsonwebtoken.verify(token, jwtSecret, { algorithms: ['HS256'] });
+      decoded = jsonwebtoken.verify(token, jwtSecret, { algorithms: ['HS256'] });
 
       if (isTokenExpired(decoded.exp)) {
         throw Object.assign(new Error(), {
@@ -34,15 +36,14 @@ const managerAuthenticateMiddleware = (req, res, next) => {
           error: { code: 40114 },
         });
       }
-
-      req.user = decoded;
-      return next();
     } catch (error) {
       if (error.name === "TokenExpiredError") {
         throw Object.assign(new Error(), {
           status: statusCodes.UNAUTHORIZED,
           error: { code: 40110 },
         });
+      } else if (error.status) {
+        throw error;
       } else {
         throw Object.assign(new Error(), {
           status: statusCodes.UNAUTHORIZED,
@@ -50,6 +51,23 @@ const managerAuthenticateMiddleware = (req, res, next) => {
         });
       }
     }
+
+    // Enforce the Redis-backed session so logout/invalidateSession actually
+    // revokes access instead of leaving a still-valid JWT usable elsewhere.
+    const session = await getSession(decoded.id);
+    if (!session || session.token !== token) {
+      throw Object.assign(new Error(), {
+        status: statusCodes.UNAUTHORIZED,
+        error: { code: 40115 },
+      });
+    }
+    // Must be awaited: a fire-and-forget GET+SETEX here can finish after a
+    // concurrent logout's DEL, silently resurrecting the session it just
+    // invalidated. Awaiting serializes the touch before the request proceeds.
+    await updateSessionActivity(decoded.id).catch(() => {});
+
+    req.user = decoded;
+    return next();
   } catch (err) {
     errorResponseHandler(err, req, res);
   }

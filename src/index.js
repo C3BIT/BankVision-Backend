@@ -8,11 +8,14 @@ const { PORT } = require("./configs/variables.js");
 const bodyParser = require("body-parser");
 const { responseHandler } = require("./middlewares/responseHandler.js");
 const { requestIdMiddleware } = require("./middlewares/requestIdMiddleware.js");
+const { base64Codec } = require("./middlewares/base64Codec.js");
 const { initializeWebSocket } = require("./services/websocketService.js");
 const app = express();
 
 // Trust reverse proxy (Coolify/Traefik) for HTTPS/Secure cookies
 app.set('trust proxy', 1);
+// Don't disclose the Express/Node stack via the X-Powered-By header
+app.disable('x-powered-by');
 
 // Database Synchronization
 const models = require("./models/index.js");
@@ -105,9 +108,17 @@ app.use(bodyParser.urlencoded({ extended: false, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(responseHandler());
-// Serve static files from uploads directory
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
-app.use("/api", routes);
+// Serve static files from uploads directory. Extensions are now locked to a
+// safe raster-image/PDF allowlist at upload time (see spaceService.js), but
+// nosniff is added as defense-in-depth against MIME-sniffing based XSS.
+app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
+  setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff"),
+}));
+// Base64 request/response codec: scoped to /api only, so it never touches
+// /uploads (raw file bytes) or /admin/queues (Bull Board UI). Webhook and
+// health-check paths are excluded inside the middleware itself since those
+// are consumed by external systems/infra that expect plain JSON.
+app.use("/api", base64Codec, routes);
 // Bind to all interfaces inside container (Docker port mapping handles external security)
 // Setup Bull Board for queue monitoring
 const { createBullBoard } = require('@bull-board/api');

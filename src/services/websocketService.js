@@ -1,7 +1,7 @@
 const socketIo = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const Redis = require("ioredis");
-const { handleSocketConnection } = require("./socketHandler");
+const { handleSocketConnection, getActiveCallsData, getActiveCallLocalRaw } = require("./socketHandler");
 const { socketAuthMiddleware } = require("../middlewares/socketAuth");
 
 const initializeWebSocket = (server) => {
@@ -32,6 +32,18 @@ const initializeWebSocket = (server) => {
   io.adapter(createAdapter(pubClient, subClient));
 
   io.use(socketAuthMiddleware);
+
+  // Answers cross-pod requests (see getActiveCallsDataCluster in
+  // socketHandler.js) for this pod's local in-memory active calls.
+  io.on("get-active-calls-local", (callback) => {
+    callback(getActiveCallsData());
+  });
+
+  // Answers cross-pod requests (see ensureLocalActiveCall in socketHandler.js)
+  // for a single customer's locally-held active call, if this pod has it.
+  io.on("get-active-call-local", (normalizedPhone, callback) => {
+    callback(getActiveCallLocalRaw(normalizedPhone));
+  });
 
   io.on("connection", (socket) => {
     handleSocketConnection(socket, io);

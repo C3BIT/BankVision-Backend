@@ -2,6 +2,7 @@ const { Router } = require('express');
 const {
   registerAdmin,
   loginAdmin,
+  logoutAdmin,
   getManagers,
   getDashboardStats,
   resetManagerPassword,
@@ -30,19 +31,21 @@ const {
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
+const { requireCaptcha } = require('../middlewares/captchaMiddleware');
 
 const router = new Router();
 
 // Public routes (with rate limiting)
-router.post('/login', authRateLimiter, loginAdmin);
+router.post('/login', requireCaptcha, authRateLimiter, loginAdmin);
 
 // Protected routes (admin)
+router.post('/logout', adminAuthenticateMiddleware, logoutAdmin);
 router.post('/register', adminAuthenticateMiddleware, registerAdmin);
 router.get('/managers', adminAuthenticateMiddleware, getManagers);
 router.get('/dashboard', adminAuthenticateMiddleware, getDashboardStats);
 router.get('/agent-monitor', adminAuthenticateMiddleware, getAgentMonitorData);
 router.put('/managers/:managerId/status', supervisorAuthMiddleware, updateManagerStatus);
-router.put('/managers/:managerId/reset-password', adminAuthenticateMiddleware, resetManagerPassword);
+router.put('/managers/:managerId/reset-password', supervisorAuthMiddleware, resetManagerPassword);
 router.delete('/managers/:managerId', superAdminAuthMiddleware, deleteManager);
 router.get('/call-logs', adminAuthenticateMiddleware, getCallLogs);
 

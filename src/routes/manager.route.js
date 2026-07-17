@@ -12,13 +12,14 @@ const {
   passwordResetRateLimiter,
   bruteForceProtection
 } = require("../middlewares/securityMiddleware");
+const { requireCaptcha } = require("../middlewares/captchaMiddleware");
 
 const router = new Router();
 
 // Public routes (with security middleware)
 router.post("/registration", authRateLimiter, registerManagerController);
-router.post("/login", authRateLimiter, bruteForceProtection(), loginManagerController);
-router.post("/forgot-password", passwordResetRateLimiter, forgotPasswordController);
+router.post("/login", requireCaptcha, authRateLimiter, bruteForceProtection(), loginManagerController);
+router.post("/forgot-password", requireCaptcha, passwordResetRateLimiter, forgotPasswordController);
 router.post("/reset-password", passwordResetRateLimiter, resetPasswordController);
 
 // Protected routes

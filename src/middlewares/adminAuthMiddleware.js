@@ -1,9 +1,17 @@
 const jwt = require('jsonwebtoken');
 const { getTokenFromRequest } = require('../utils/cookieHelper');
+const { getSession, updateSessionActivity } = require('../utils/sessionManager');
 
 const { jwtSecret } = require('../configs/variables');
 
-const adminAuthenticateMiddleware = (req, res, next) => {
+// Enforces the Redis-backed session so invalidateSession() (logout, forced
+// password reset) actually revokes a still-unexpired JWT.
+const enforceSession = async (decoded, token) => {
+  const session = await getSession(decoded.id);
+  return session && session.token === token;
+};
+
+const adminAuthenticateMiddleware = async (req, res, next) => {
   try {
     // Get token from cookie or Authorization header (backward compatible)
     const token = getTokenFromRequest(req);
@@ -24,6 +32,16 @@ const adminAuthenticateMiddleware = (req, res, next) => {
       });
     }
 
+    if (!(await enforceSession(decoded, token))) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired or logged out'
+      });
+    }
+    // Awaited to avoid a race with a concurrent logout's invalidateSession DEL
+    // (see authMiddleware.js) that could otherwise resurrect a revoked session.
+    await updateSessionActivity(decoded.id).catch(() => {});
+
     req.admin = decoded;
     next();
   } catch (error) {
@@ -40,7 +58,7 @@ const adminAuthenticateMiddleware = (req, res, next) => {
   }
 };
 
-const supervisorAuthMiddleware = (req, res, next) => {
+const supervisorAuthMiddleware = async (req, res, next) => {
   try {
     // Get token from cookie or Authorization header (backward compatible)
     const token = getTokenFromRequest(req);
@@ -68,6 +86,16 @@ const supervisorAuthMiddleware = (req, res, next) => {
       });
     }
 
+    if (!(await enforceSession(decoded, token))) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired or logged out'
+      });
+    }
+    // Awaited to avoid a race with a concurrent logout's invalidateSession DEL
+    // (see authMiddleware.js) that could otherwise resurrect a revoked session.
+    await updateSessionActivity(decoded.id).catch(() => {});
+
     req.admin = decoded;
     next();
   } catch (error) {
@@ -84,7 +112,7 @@ const supervisorAuthMiddleware = (req, res, next) => {
   }
 };
 
-const superAdminAuthMiddleware = (req, res, next) => {
+const superAdminAuthMiddleware = async (req, res, next) => {
   try {
     const token = getTokenFromRequest(req);
 
@@ -110,6 +138,16 @@ const superAdminAuthMiddleware = (req, res, next) => {
         message: 'Access denied. Super admin privileges required.'
       });
     }
+
+    if (!(await enforceSession(decoded, token))) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired or logged out'
+      });
+    }
+    // Awaited to avoid a race with a concurrent logout's invalidateSession DEL
+    // (see authMiddleware.js) that could otherwise resurrect a revoked session.
+    await updateSessionActivity(decoded.id).catch(() => {});
 
     req.admin = decoded;
     next();

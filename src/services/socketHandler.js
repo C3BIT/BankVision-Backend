@@ -363,17 +363,28 @@ const handleSocketConnection = async (socket, io) => {
       // correct attribution so call counts reflect who caused the disruption.
       const isPeerTimeout = data?.reason === "peer_timeout";
       if (role === "customer") {
-        console.log(`🔄 Customer ${phone} ended call`);
+        // socket.user.phone comes straight from the JWT/handshake and can be
+        // formatted differently (e.g. with country code) than the normalized
+        // key activeCustomerCalls is actually stored under — looking it up
+        // with the raw `phone` here silently misses the entry (and thus never
+        // notifies the manager) even when the call is very much active.
+        const normalizedPhone = normalizePhone(phone);
+        console.log(`🔄 Customer ${normalizedPhone} ended call`);
+
+        // Self-heals across pods: the entry was created on whichever pod
+        // hosts the MANAGER's socket, which may differ from this customer
+        // connection's pod.
+        await ensureLocalActiveCall(io, normalizedPhone);
 
         // Notify manager about call end BEFORE clearing state
-        if (activeCustomerCalls[phone]?.currentManagerEmail) {
-          const managerEmail = activeCustomerCalls[phone].currentManagerEmail;
+        if (activeCustomerCalls[normalizedPhone]?.currentManagerEmail) {
+          const managerEmail = activeCustomerCalls[normalizedPhone].currentManagerEmail;
           // Find current manager socket ID robustly
           const managerSocketId = getOnlineUsersWithInfo().find(
             (user) => user.email === managerEmail
-          )?.socketId || activeCustomerCalls[phone].managerSocketId;
+          )?.socketId || activeCustomerCalls[normalizedPhone].managerSocketId;
 
-          console.log(`📣 Notifying manager ${managerEmail} (socket: ${managerSocketId}) about customer ${phone} ending call`);
+          console.log(`📣 Notifying manager ${managerEmail} (socket: ${managerSocketId}) about customer ${normalizedPhone} ending call`);
 
           if (managerSocketId) {
             // fetchSockets() is cluster-aware (via the Redis adapter); io.sockets.sockets.get()
@@ -384,8 +395,8 @@ const handleSocketConnection = async (socket, io) => {
                 customerId: phone,
                 customerName: name || null,
                 endedBy: "customer",
-                callLogId: activeCustomerCalls[phone].callLogId || null,
-                referenceNumber: activeCustomerCalls[phone].referenceNumber || null,
+                callLogId: activeCustomerCalls[normalizedPhone].callLogId || null,
+                referenceNumber: activeCustomerCalls[normalizedPhone].referenceNumber || null,
               };
               io.to(managerSocketId).emit("call:ended", eventData);
               console.log(`✅ Successfully sent call:ended event to manager ${managerEmail} (socket: ${managerSocketId})`);
@@ -394,15 +405,15 @@ const handleSocketConnection = async (socket, io) => {
               console.log(`⚠️ Manager socket ${managerSocketId} not found or not connected`);
             }
           } else {
-            console.log(`⚠️ No manager socket ID found for customer ${phone}`);
-            console.log(`   Active call data:`, JSON.stringify(activeCustomerCalls[phone]));
+            console.log(`⚠️ No manager socket ID found for customer ${normalizedPhone}`);
+            console.log(`   Active call data:`, JSON.stringify(activeCustomerCalls[normalizedPhone]));
           }
         } else {
-          console.log(`⚠️ No active call data found for customer ${phone}`);
+          console.log(`⚠️ No active call data found for customer ${normalizedPhone}`);
         }
 
         // Auto-stop recording
-        const callData = activeCustomerCalls[phone];
+        const callData = activeCustomerCalls[normalizedPhone];
         if (callData?.egressId) {
           try {
             const recordingService = require('./recordingService');
@@ -422,7 +433,7 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // CBS audit log — fire and forget, never blocks call cleanup
-        const _callDataForLog = activeCustomerCalls[phone];
+        const _callDataForLog = activeCustomerCalls[normalizedPhone];
         if (_callDataForLog?.cifNo) {
           cbsService.saveCustomerInfoLog({
             cifNo: _callDataForLog.cifNo,
@@ -434,18 +445,18 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Complete call log — peer_timeout means manager's LiveKit dropped, customer reports it
-        if (activeCustomerCalls[phone]?.callRoom) {
+        if (activeCustomerCalls[normalizedPhone]?.callRoom) {
           try {
             const endedBy = isPeerTimeout ? "system" : "customer";
             const metadata = isPeerTimeout ? { disconnectedBy: "manager" } : undefined;
             await callLogService.completeCall(
-              activeCustomerCalls[phone].callRoom,
+              activeCustomerCalls[normalizedPhone].callRoom,
               endedBy,
               {
-                phoneVerified: activeCustomerCalls[phone].phoneVerified || false,
-                emailVerified: activeCustomerCalls[phone].emailVerified || false,
-                faceVerified: activeCustomerCalls[phone].faceVerified || false,
-                chatMessagesCount: activeCustomerCalls[phone].chatMessagesCount || 0,
+                phoneVerified: activeCustomerCalls[normalizedPhone].phoneVerified || false,
+                emailVerified: activeCustomerCalls[normalizedPhone].emailVerified || false,
+                faceVerified: activeCustomerCalls[normalizedPhone].faceVerified || false,
+                chatMessagesCount: activeCustomerCalls[normalizedPhone].chatMessagesCount || 0,
                 ...(metadata && { metadata }),
               }
             );
@@ -455,14 +466,14 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Clear call and reset manager status
-        await clearActiveCustomerCall(phone, io);
+        await clearActiveCustomerCall(normalizedPhone, io);
 
         // Notify customer that call has ended (confirm their end request)
         socket.emit("call:ended", {
           endedBy: isPeerTimeout ? "system" : "customer",
           message: "Call ended successfully"
         });
-        console.log(`✅ Sent call:ended confirmation to customer ${phone}`);
+        console.log(`✅ Sent call:ended confirmation to customer ${normalizedPhone}`);
 
         // Broadcast updated manager list so all managers see status change
         io.emit("manager:list", findAvailableManagers());
@@ -1093,7 +1104,7 @@ const handleSocketConnection = async (socket, io) => {
       const normalizedPhone = normalizePhone(phone);
       console.log(`✅ Customer ${normalizedPhone} verified phone number`);
 
-      const activeCall = activeCustomerCalls[normalizedPhone];
+      const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
       if (!activeCall || !activeCall.currentManagerEmail) {
         console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
@@ -1225,7 +1236,7 @@ const handleSocketConnection = async (socket, io) => {
       const normalizedPhone = normalizePhone(phone);
       console.log(`✅ Customer ${normalizedPhone} verified email address`);
 
-      const activeCall = activeCustomerCalls[normalizedPhone];
+      const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
       if (!activeCall || !activeCall.currentManagerEmail) {
         console.log(`⚠️ No active call found for customer ${normalizedPhone}`);
         return;
@@ -2086,7 +2097,7 @@ const handleSocketConnection = async (socket, io) => {
       const normalizedPhone = normalizePhone(phone);
       console.log(`✍️ Customer ${normalizedPhone} uploaded signature: ${signaturePath}`);
 
-      const activeCall = activeCustomerCalls[normalizedPhone];
+      const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
       console.log(`🔍 Active call lookup for customer ${normalizedPhone}:`, activeCall ? 'FOUND' : 'NOT FOUND');
 
       if (!activeCall || !activeCall.currentManagerEmail) {
@@ -2442,7 +2453,7 @@ const handleSocketConnection = async (socket, io) => {
     });
 
     // Customer or Manager submits change request (phone/email)
-    socket.on("customer:submit-change-request", (data) => {
+    socket.on("customer:submit-change-request", async (data) => {
       // Allow both customer and manager to trigger this
       // If manager triggers it, it's a "submit on behalf" flow
       const { changeType, newValue, currentValue, verified } = data;
@@ -2452,7 +2463,7 @@ const handleSocketConnection = async (socket, io) => {
         ? normalizePhone(socket.user?.customerPhone)
         : normalizePhone(phone);
 
-      const activeCall = activeCustomerCalls[lookupPhone];
+      const activeCall = await ensureLocalActiveCall(io, lookupPhone);
 
       console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${changeType} change request for ${lookupPhone}: ${currentValue} → ${newValue}`);
 
@@ -2504,7 +2515,7 @@ const handleSocketConnection = async (socket, io) => {
     // customer:email-verified is handled above (merged into the authoritative handler)
 
     // Customer or Manager submits address change request
-    socket.on("customer:submit-address-change-request", (data) => {
+    socket.on("customer:submit-address-change-request", async (data) => {
       // Allow both customer and manager to trigger this
       const { addressType, addressData, oldAddress } = data;
 
@@ -2513,7 +2524,7 @@ const handleSocketConnection = async (socket, io) => {
         ? normalizePhone(socket.user?.customerPhone)
         : normalizePhone(phone);
 
-      const activeCall = activeCustomerCalls[lookupPhone];
+      const activeCall = await ensureLocalActiveCall(io, lookupPhone);
 
       console.log(`📝 ${role === 'manager' ? 'Manager' : 'Customer'} submitted ${addressType} address change request for ${lookupPhone}`);
       console.log('📄 Address Data:', JSON.stringify(addressData, null, 2));
@@ -4200,14 +4211,15 @@ const handleSocketConnection = async (socket, io) => {
     });
 
     // ============ CHAT EVENTS ============
-    socket.on("chat:send", (data) => {
+    socket.on("chat:send", async (data) => {
       const { message, timestamp } = data;
       const messageId = crypto.randomUUID();
 
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
 
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        if (!managerActiveCall) {
           console.log(`⚠️ No active call found for chat message from manager ${email}`);
           return socket.emit("call:error", { message: "No active call with customer" });
         }
@@ -4235,7 +4247,7 @@ const handleSocketConnection = async (socket, io) => {
 
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
 
         if (!activeCall || !activeCall.currentManagerEmail) {
           console.log(`⚠️ No active call found for chat message from customer ${normalizedPhone}`);
@@ -4271,13 +4283,14 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    socket.on("chat:typing", (data) => {
+    socket.on("chat:typing", async (data) => {
       const { isTyping } = data;
 
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
 
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        if (!managerActiveCall) return;
 
         io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("chat:typing", {
           senderId: email,
@@ -4287,7 +4300,7 @@ const handleSocketConnection = async (socket, io) => {
 
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
 
         if (!activeCall || !activeCall.currentManagerEmail) return;
 
@@ -4309,10 +4322,11 @@ const handleSocketConnection = async (socket, io) => {
     // ============ WHITEBOARD EVENTS ============
     // Bidirectional relay: stroke, clear, undo, toggle
 
-    socket.on("whiteboard:stroke", (data) => {
+    socket.on("whiteboard:stroke", async (data) => {
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
+        if (!managerActiveCall) return;
         io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:stroke", {
           ...data,
           senderId: email,
@@ -4320,7 +4334,7 @@ const handleSocketConnection = async (socket, io) => {
         });
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
         if (!activeCall || !activeCall.managerSocketId) return;
         io.to(activeCall.managerSocketId).emit("whiteboard:stroke", {
           ...data,
@@ -4330,10 +4344,11 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    socket.on("whiteboard:clear", (data) => {
+    socket.on("whiteboard:clear", async (data) => {
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
+        if (!managerActiveCall) return;
         io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:clear", {
           senderId: email,
           senderRole: "manager",
@@ -4341,7 +4356,7 @@ const handleSocketConnection = async (socket, io) => {
         });
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
         if (!activeCall || !activeCall.managerSocketId) return;
         io.to(activeCall.managerSocketId).emit("whiteboard:clear", {
           senderId: phone,
@@ -4351,10 +4366,11 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    socket.on("whiteboard:undo", (data) => {
+    socket.on("whiteboard:undo", async (data) => {
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
+        if (!managerActiveCall) return;
         io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:undo", {
           senderId: email,
           senderRole: "manager",
@@ -4362,7 +4378,7 @@ const handleSocketConnection = async (socket, io) => {
         });
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
         if (!activeCall || !activeCall.managerSocketId) return;
         io.to(activeCall.managerSocketId).emit("whiteboard:undo", {
           senderId: phone,
@@ -4372,11 +4388,12 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    socket.on("whiteboard:toggle", (data) => {
+    socket.on("whiteboard:toggle", async (data) => {
       const { open } = data;
       if (role === "manager") {
         const customerPhone = normalizePhone(socket.user.customerPhone);
-        if (!customerPhone || !activeCustomerCalls[customerPhone]) return;
+        const managerActiveCall = customerPhone ? await ensureLocalActiveCall(io, customerPhone) : null;
+        if (!managerActiveCall) return;
         io.to(activeCustomerCalls[customerPhone].customerSocketId).emit("whiteboard:toggle", {
           open,
           senderId: email,
@@ -4384,7 +4401,7 @@ const handleSocketConnection = async (socket, io) => {
         });
       } else if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
-        const activeCall = activeCustomerCalls[normalizedPhone];
+        const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
         if (!activeCall || !activeCall.managerSocketId) return;
         io.to(activeCall.managerSocketId).emit("whiteboard:toggle", {
           open,
@@ -5194,6 +5211,34 @@ const getOnlineManagersData = () => {
   return getAllManagers();
 };
 
+// activeCustomerCalls is a plain in-memory object, local to this pod. With
+// multiple backend replicas, a REST caller (e.g. the Admin Panel Supervisor
+// tab) can land on a pod that never handled the call's socket events, so
+// getActiveCallsData() alone would wrongly report "no active calls". This
+// asks every other pod for its local active calls (over the Redis adapter's
+// serverSideEmit) and merges the results with this pod's own.
+const getActiveCallsDataCluster = async (io) => {
+  const local = getActiveCallsData();
+
+  if (!io) return local;
+
+  try {
+    const remoteResults = await io.serverSideEmitWithAck("get-active-calls-local");
+    const merged = [...local, ...remoteResults.flat()];
+
+    const seen = new Set();
+    return merged.filter((call) => {
+      const key = call.callRoom || call.customerPhone;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  } catch (error) {
+    console.error("⚠️ Cluster active-calls aggregation failed, falling back to local pod only:", error.message);
+    return local;
+  }
+};
+
 // Ownership check for CBS controller endpoints: is this manager currently
 // handling a live call with the customer identified by phone/accountNumber?
 // CallLog.customerAccountNumber is never populated by the real call flow, so
@@ -5216,9 +5261,59 @@ const isManagerAssignedToCustomer = (managerEmail, { phone, accountNumber } = {}
   return false;
 };
 
+// Serializable snapshot of one local active call for cross-pod requests (see
+// ensureLocalActiveCall below). `timeout` is a Node Timer (not serializable,
+// and only meaningful on the pod that owns it) and `attemptedManagers` is a
+// Set (socket.io can't transport it as-is), so both are converted.
+const getActiveCallLocalRaw = (normalizedPhone) => {
+  const call = activeCustomerCalls[normalizedPhone];
+  if (!call) return null;
+  const { timeout, attemptedManagers, ...safe } = call;
+  return {
+    ...safe,
+    attemptedManagers: attemptedManagers ? Array.from(attemptedManagers) : [],
+  };
+};
+
+// activeCustomerCalls entries are always created on whichever pod hosts the
+// MANAGER's socket connection (queue:pick-call / checkQueueAndRouteCall). A
+// customer's own socket connection can land on a *different* pod (no cross-
+// user pod affinity in the k8s Service), so a customer-triggered handler
+// reading activeCustomerCalls[phone] locally can find nothing even though the
+// call is very much active — causing silent, un-logged failures (OTP-verified
+// acks never reaching the manager, service requests / chat / whiteboard never
+// syncing customer→manager). This does a one-time cross-pod fetch on miss and
+// adopts a local copy, so this pod's local reads (and the manager-facing
+// notifications they trigger) work correctly for the rest of the call.
+const ensureLocalActiveCall = async (io, normalizedPhone) => {
+  if (!normalizedPhone) return null;
+  if (activeCustomerCalls[normalizedPhone]) return activeCustomerCalls[normalizedPhone];
+  if (!io) return null;
+
+  try {
+    const results = await io.serverSideEmitWithAck("get-active-call-local", normalizedPhone);
+    const found = results.find(Boolean);
+    if (!found) return null;
+
+    activeCustomerCalls[normalizedPhone] = {
+      ...found,
+      timeout: null,
+      attemptedManagers: new Set(found.attemptedManagers || []),
+    };
+    console.log(`🔁 Adopted cross-pod active-call copy for customer ${normalizedPhone}`);
+    return activeCustomerCalls[normalizedPhone];
+  } catch (error) {
+    console.error(`⚠️ Cross-pod active-call fetch failed for ${normalizedPhone}:`, error.message);
+    return null;
+  }
+};
+
 module.exports = {
   handleSocketConnection,
   getActiveCallsData,
+  getActiveCallsDataCluster,
   getOnlineManagersData,
-  isManagerAssignedToCustomer
+  isManagerAssignedToCustomer,
+  getActiveCallLocalRaw,
+  ensureLocalActiveCall,
 };

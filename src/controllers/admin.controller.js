@@ -7,10 +7,12 @@ const { Admin } = require('../models/Admin');
 const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest } = require('../models');
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
+const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
 const { logAdminActivity, getClientIP } = require('../services/loggingService');
-const { getActiveCallsData, getOnlineManagersData } = require('../services/socketHandler');
+const { getActiveCallsData, getActiveCallsDataCluster, getOnlineManagersData } = require('../services/socketHandler');
 const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
+const { createSession, invalidateSession } = require('../utils/sessionManager');
 const { checkPasswordExpiry } = require('../middlewares/passwordExpiryMiddleware');
 
 const { jwtSecret } = require('../configs/variables');
@@ -155,6 +157,12 @@ const loginAdmin = async (req, res) => {
 
     // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript)
     setAuthCookie(res, token, 8 * 60 * 60 * 1000); // 8 hours
+
+    // Track the session so logout/invalidateSession can actually revoke this token
+    await createSession(admin.id, token, {
+      userAgent: req.headers['user-agent'],
+      ipAddress: getClientIP(req)
+    });
 
     const responseData = {
       admin: {
@@ -461,10 +469,43 @@ const resetManagerPassword = async (req, res) => {
       });
     }
 
+    // Cannot reuse the current password or recent password history
+    const historyCheck = await validatePasswordChange(
+      newPassword,
+      manager.password,
+      manager.passwordHistory || []
+    );
+
+    if (!historyCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: historyCheck.message
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
+    manager.passwordHistory = addToPasswordHistory(manager.password, manager.passwordHistory || []);
     manager.password = hashedPassword;
     manager.passwordChangedAt = new Date();
     await manager.save();
+
+    // Invalidate the manager's existing session so the old credentials/token stop working
+    await invalidateSession(manager.id);
+
+    await logAdminActivity({
+      activityType: 'user_password_reset',
+      adminId: req.admin?.id,
+      adminEmail: req.admin?.email,
+      adminRole: req.admin?.role,
+      targetType: 'manager',
+      targetId: manager.id,
+      targetEmail: manager.email,
+      description: `Admin reset password for manager ${manager.email}`,
+      requestPath: req.originalUrl,
+      requestMethod: req.method,
+      responseStatus: 200,
+      ipAddress: getClientIP(req)
+    });
 
     res.json({
       success: true,
@@ -482,8 +523,9 @@ const resetManagerPassword = async (req, res) => {
 // Get active calls (for supervisor monitoring) - from in-memory socket data
 const getActiveCalls = async (req, res) => {
   try {
-    // Get real-time active calls from socket handler
-    const activeCalls = getActiveCallsData();
+    // Get real-time active calls, aggregated across all backend pods
+    // (in-memory call state is local to whichever pod handled the call).
+    const activeCalls = await getActiveCallsDataCluster(req.app.get('io'));
     console.log('📊 Active Calls API - activeCalls:', activeCalls.length);
 
     // Also get online managers
@@ -1194,8 +1236,15 @@ const generateWhisperToken = async (req, res) => {
     });
 
     // listen  → receive only, fully hidden
-    // whisper → publish audio (to coach the manager), hidden from participant list
+    // whisper → publish audio (to coach the manager); must NOT be a LiveKit
+    //           "hidden" participant, since a hidden grant makes the server
+    //           withhold this participant's join/track-publish events from
+    //           every other client in the room, so the manager would never
+    //           even learn the whisper track exists to subscribe to it.
+    //           The manager-panel client instead filters this identity out
+    //           of the visible video grid so it stays invisible in the UI.
     // barge   → publish audio+video, visible as a participant
+    const isListen  = mode === 'listen';
     const isBarge   = mode === 'barge';
     const isWhisper = mode === 'whisper';
 
@@ -1205,7 +1254,7 @@ const generateWhisperToken = async (req, res) => {
       canPublish: isBarge || isWhisper,  // whisper and barge can publish audio
       canSubscribe: true,
       canPublishData: isBarge,
-      hidden: !isBarge                   // whisper stays hidden in participant list
+      hidden: isListen                   // only pure listen (no publish) stays hidden
     });
 
     const token = await at.toJwt();
@@ -1216,7 +1265,7 @@ const generateWhisperToken = async (req, res) => {
         token,
         roomName,
         identity: supervisorIdentity,
-        serverUrl: process.env.LIVEKIT_URL // Changed from livekitUrl to match OpenViduMeetComponent expectation
+        serverUrl: process.env.PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL // Public wss:// URL browsers can actually reach; LIVEKIT_URL is internal-only
       }
     });
   } catch (error) {
@@ -1589,9 +1638,26 @@ const updateSystemSetting = async (req, res) => {
   }
 };
 
+const logoutAdmin = async (req, res) => {
+  try {
+    const adminId = req.admin?.id;
+
+    if (adminId) {
+      await invalidateSession(adminId);
+    }
+    clearAuthCookie(res);
+
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Admin Logout Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Logout failed' });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
+  logoutAdmin,
   getChangeRequests,
   getManagers,
   getDashboardStats,

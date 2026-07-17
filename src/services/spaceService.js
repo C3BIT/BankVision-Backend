@@ -2,6 +2,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs").promises;
 const { v4: uuidv4 } = require("uuid");
+const { extensionForMimeType } = require("../utils/fileSignature");
 
 // MinIO Configuration
 // MinIO Configuration
@@ -23,7 +24,10 @@ console.log('🗄️ Storage Configuration:', {
 
 const imageFileUpload = async (file) => {
   try {
-    const fileName = `${crypto.randomBytes(8).toString("hex")}-${uuidv4()}${path.extname(file.originalname)}`;
+    // Extension is derived from the verified MIME type, never from the
+    // client-supplied original filename (which let a ".svg" containing
+    // JavaScript through under a spoofed image Content-Type).
+    const fileName = `${crypto.randomBytes(8).toString("hex")}-${uuidv4()}${extensionForMimeType(file.mimetype)}`;
     const key = `uploads/${fileName}`;
 
     if (STORAGE_PROVIDER === "local") {

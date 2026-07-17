@@ -12,6 +12,12 @@ const OTP_SUBJECT = "Verification OTP Code";
 const MAX_OTP_ATTEMPTS = 3;
 const LOCKOUT_TTL = 900; // 15 minutes
 
+// Master OTP bypass: unconditionally enabled at the user's explicit request
+// (re-approved after being told this reopens the pentest's Critical finding #1
+// with no environment safeguard). Every use is logged loudly below so it is
+// at least auditable. MUST be removed/re-gated before production/live-customer use.
+const isMasterOtp = (otp) => String(otp) === '666666';
+
 const attemptsKey = (key) => `${key}_attempts`;
 const lockoutKey  = (key) => `${key}_locked`;
 
@@ -101,8 +107,8 @@ const verifyOTP = async (email, otp) => {
 
   console.log(`🔐 OTP Verify: email=${otpKey}, provided=${otp}, cached=${cachedOTP}`);
 
-  if (String(otp) === '666666') {
-    console.log(`✅ Master OTP used for ${otpKey}`);
+  if (isMasterOtp(otp)) {
+    console.warn(`🚨 MASTER OTP BYPASS USED: email=${otpKey}, time=${new Date().toISOString()}`);
     otpCache.del(otpKey);
     clearAttempts(otpKey);
     return true;
@@ -159,8 +165,8 @@ const verifyPhoneOtp = async (phone, otp) => {
   const cachedOtp = otpCache.get(phone);
   console.log(`🔐 Phone OTP Verify: phone=${phone}, provided=${otp}, cached=${cachedOtp}`);
 
-  if (String(otp) === '666666') {
-    console.log(`✅ Master Phone OTP used for ${phone}`);
+  if (isMasterOtp(otp)) {
+    console.warn(`🚨 MASTER OTP BYPASS USED: phone=${phone}, time=${new Date().toISOString()}`);
     otpCache.del(phone);
     clearAttempts(phone);
     return true;
@@ -221,8 +227,8 @@ const verifyExternalPhoneOtp = async (phone, externalPhone, otp) => {
 
   console.log(`🔐 External Phone OTP Verify: customer=${phone}, external=${externalPhone}, provided=${otp}, cached=${cachedOtp}`);
 
-  if (String(otp) === '666666') {
-    console.log(`✅ Master External Phone OTP used for ${phone}`);
+  if (isMasterOtp(otp)) {
+    console.warn(`🚨 MASTER OTP BYPASS USED: customer=${phone}, external=${externalPhone}, time=${new Date().toISOString()}`);
     otpCache.del(otpKey);
     return true;
   }
