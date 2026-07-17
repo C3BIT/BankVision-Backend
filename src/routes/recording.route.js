@@ -5,8 +5,21 @@ const { adminAuthenticateMiddleware } = require('../middlewares/adminAuthMiddlew
 const { Recording } = require('../models');
 
 /**
- * POST /api/recording/start
- * Start recording a room (Admin only)
+ * @swagger
+ * tags:
+ *   name: Recording
+ *   description: LiveKit egress recording control and management (admin only)
+ */
+
+/**
+ * @swagger
+ * /recording/start:
+ *   post:
+ *     summary: Start recording a room
+ *     tags: [Recording]
+ *     responses:
+ *       200: { description: Recording started }
+ *       400: { description: Room name required }
  */
 router.post('/start', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -37,8 +50,14 @@ router.post('/start', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * POST /api/recording/stop
- * Stop recording (Admin only)
+ * @swagger
+ * /recording/stop:
+ *   post:
+ *     summary: Stop an active recording
+ *     tags: [Recording]
+ *     responses:
+ *       200: { description: Recording stopped }
+ *       400: { description: egressId or recordingId required }
  */
 router.post('/stop', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -73,8 +92,18 @@ router.post('/stop', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * GET /api/recording/status/:egressId
- * Get recording status (Admin only)
+ * @swagger
+ * /recording/status/{egressId}:
+ *   get:
+ *     summary: Get recording status by egress ID
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: path
+ *         name: egressId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Recording status }
  */
 router.get('/status/:egressId', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -91,8 +120,17 @@ router.get('/status/:egressId', adminAuthenticateMiddleware, async (req, res) =>
 });
 
 /**
- * GET /api/recording/active
- * List active recordings (Admin only)
+ * @swagger
+ * /recording/active:
+ *   get:
+ *     summary: List active recordings
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: query
+ *         name: roomName
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Active recordings }
  */
 router.get('/active', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -109,8 +147,29 @@ router.get('/active', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * GET /api/recording/list
- * List all recordings with pagination (Admin only)
+ * @swagger
+ * /recording/list:
+ *   get:
+ *     summary: List all recordings with pagination
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: customerPhone
+ *         schema: { type: string }
+ *       - in: query
+ *         name: managerEmail
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Paginated recordings list }
  */
 router.get('/list', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -149,8 +208,13 @@ router.get('/list', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * POST /api/recording/sync
- * Sync all recordings status (Admin only)
+ * @swagger
+ * /recording/sync:
+ *   post:
+ *     summary: Sync all recording statuses from LiveKit egress
+ *     tags: [Recording]
+ *     responses:
+ *       200: { description: Sync result }
  */
 router.post('/sync', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -166,8 +230,30 @@ router.post('/sync', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * GET /api/recording/:id
- * Get recording details (Admin only)
+ * @swagger
+ * /recording/{id}:
+ *   get:
+ *     summary: Get recording details
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Recording details }
+ *       404: { description: Not found }
+ *   delete:
+ *     summary: Soft-delete a recording
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Recording deleted }
+ *       404: { description: Not found }
  */
 router.get('/:id', adminAuthenticateMiddleware, async (req, res) => {
   try {
@@ -205,9 +291,24 @@ router.get('/:id', adminAuthenticateMiddleware, async (req, res) => {
 });
 
 /**
- * GET /api/recording/:id/download
- * Download recording file (Admin only)
- * Supports token via Authorization header or query param
+ * @swagger
+ * /recording/{id}/download:
+ *   get:
+ *     summary: Download a recording file (token via header or ?token= query param)
+ *     tags: [Recording]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: token
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Recording file stream }
+ *       401: { description: Missing/invalid token }
+ *       403: { description: Admin access required }
+ *       404: { description: Not found }
  */
 router.get('/:id/download', async (req, res) => {
   try {
@@ -324,10 +425,7 @@ router.get('/:id/download', async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/recording/:id
- * Delete recording (Admin only - soft delete)
- */
+// Delete recording (Admin only - soft delete). Documented above with the GET /:id block.
 router.delete('/:id', adminAuthenticateMiddleware, async (req, res) => {
   try {
     const { id } = req.params;

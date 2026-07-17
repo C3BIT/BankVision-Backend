@@ -114,6 +114,13 @@ app.use(responseHandler());
 app.use("/uploads", express.static(path.join(__dirname, "../uploads"), {
   setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff"),
 }));
+// API documentation (Swagger UI). Kept outside /api so the base64 codec
+// below never touches it.
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./configs/swagger.js");
+app.get("/api-docs.json", (req, res) => res.json(swaggerSpec));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // Base64 request/response codec: scoped to /api only, so it never touches
 // /uploads (raw file bytes) or /admin/queues (Bull Board UI). Webhook and
 // health-check paths are excluded inside the middleware itself since those

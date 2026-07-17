@@ -45,9 +45,52 @@ const verifyFileSignature = (req, res, next) => {
   next();
 };
 
+/**
+ * @swagger
+ * tags:
+ *   name: Image
+ *   description: Image/document upload (face captures, verification documents)
+ */
+
+/**
+ * @swagger
+ * /image/upload:
+ *   post:
+ *     summary: Upload a single image file (face capture)
+ *     tags: [Image]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200: { description: File uploaded }
+ *       400: { description: Invalid file type or content }
+ */
 // Single file upload (face capture — images only)
 router.post("/upload", uploadImage.single("file"), verifyFileSignature, handleImageFileUpload);
 
+/**
+ * @swagger
+ * /image/upload-multiple:
+ *   post:
+ *     summary: Upload up to 5 image/PDF documents (address verification)
+ *     tags: [Image]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               files: { type: array, items: { type: string, format: binary } }
+ *     responses:
+ *       200: { description: Files uploaded }
+ *       400: { description: Invalid file type or content }
+ */
 // Multiple file upload (address verification documents — images + PDF, up to 5 files)
 router.post("/upload-multiple", uploadDocuments.array("files", 5), verifyFileSignature, handleMultipleFileUpload);
 

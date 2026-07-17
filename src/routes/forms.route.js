@@ -24,6 +24,24 @@ const anyStaffAuth = (req, res, next) => {
   }
 };
 
+/**
+ * @swagger
+ * tags:
+ *   name: Forms
+ *   description: Downloadable form templates (manager/admin/supervisor only)
+ */
+
+/**
+ * @swagger
+ * /forms/download:
+ *   get:
+ *     summary: Download a form template
+ *     tags: [Forms]
+ *     responses:
+ *       200: { description: Form file }
+ *       401: { description: Authentication required }
+ *       403: { description: Insufficient permissions }
+ */
 router.get('/download', anyStaffAuth, downloadForm);
 
 module.exports = router;

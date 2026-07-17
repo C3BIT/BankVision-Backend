@@ -10,9 +10,32 @@ if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
 }
 
 /**
- * Generate a LiveKit access token for a participant
- * POST /api/openvidu/token
- * Body: { roomName: string, participantName: string, participantIdentity?: string }
+ * @swagger
+ * tags:
+ *   name: OpenVidu
+ *   description: LiveKit/OpenVidu room token issuance
+ */
+
+/**
+ * @swagger
+ * /openvidu/token:
+ *   post:
+ *     summary: Generate a LiveKit access token for a participant
+ *     tags: [OpenVidu]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [roomName, participantName]
+ *             properties:
+ *               roomName: { type: string }
+ *               participantName: { type: string }
+ *               participantIdentity: { type: string }
+ *     responses:
+ *       200: { description: "{ token, roomName, participantName, identity, serverUrl }" }
+ *       400: { description: Missing roomName/participantName }
  */
 router.post("/token", async (req, res) => {
   try {
@@ -71,8 +94,18 @@ router.post("/token", async (req, res) => {
 });
 
 /**
- * Get room info (optional endpoint for debugging)
- * GET /api/openvidu/room/:roomName
+ * @swagger
+ * /openvidu/room/{roomName}:
+ *   get:
+ *     summary: Get room info (debugging)
+ *     tags: [OpenVidu]
+ *     parameters:
+ *       - in: path
+ *         name: roomName
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Room info }
  */
 router.get("/room/:roomName", async (req, res) => {
   try {

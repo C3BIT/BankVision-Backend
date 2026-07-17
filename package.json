@@ -44,6 +44,8 @@
     "pdf-lib": "^1.17.1",
     "sequelize": "6.37.7",
     "socket.io": "4.8.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "11.1.0",
     "validator": "13.15.26"
   }
