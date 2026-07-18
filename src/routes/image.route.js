@@ -1,9 +1,38 @@
 const { Router } = require("express");
-const { handleImageFileUpload, handleMultipleFileUpload } = require("../controllers/image.controller");
+const jwt = require("jsonwebtoken");
+const { handleImageFileUpload, handleMultipleFileUpload, handleViewDocument } = require("../controllers/image.controller");
 const multer = require("multer");
 const { matchesMimeType } = require("../utils/fileSignature");
+const { getTokenFromRequest } = require("../utils/cookieHelper");
+const { jwtSecret } = require("../configs/variables");
 
 const router = Router();
+
+// Accepts either a manager or an admin/supervisor JWT — token via
+// Authorization header or ?token= query param, since <img>/window.open
+// requests can't attach headers (same pattern as recording.route.js).
+const staffAuthMiddleware = (req, res, next) => {
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] });
+    const isManager = decoded.role === "manager";
+    const isAdminStaff = decoded.type === "admin";
+    if (!isManager && !isAdminStaff) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+    req.user = decoded;
+    next();
+  } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ success: false, message: "Token expired" });
+    }
+    return res.status(401).json({ success: false, message: "Invalid token" });
+  }
+};
 const storage = multer.memoryStorage();
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -93,5 +122,31 @@ router.post("/upload", uploadImage.single("file"), verifyFileSignature, handleIm
  */
 // Multiple file upload (address verification documents — images + PDF, up to 5 files)
 router.post("/upload-multiple", uploadDocuments.array("files", 5), verifyFileSignature, handleMultipleFileUpload);
+
+/**
+ * @swagger
+ * /image/view:
+ *   get:
+ *     summary: Stream a previously uploaded document/image via an authenticated proxy (token via header or ?token= query param)
+ *     tags: [Image]
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         required: true
+ *         schema: { type: string }
+ *         description: The stored document path/URL (as returned by upload) — only the filename after "/uploads/" is used.
+ *       - in: query
+ *         name: token
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Document stream }
+ *       400: { description: Missing/invalid path }
+ *       401: { description: Missing/invalid token }
+ *       403: { description: Manager or admin access required }
+ *       404: { description: Not found }
+ */
+// View/verify a document (manager or admin) — proxies the file server-side so
+// the browser never needs direct, unauthenticated access to the storage bucket.
+router.get("/view", staffAuthMiddleware, handleViewDocument);
 
 module.exports = router;

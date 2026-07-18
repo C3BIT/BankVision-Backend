@@ -1227,7 +1227,12 @@ const generateWhisperToken = async (req, res) => {
       return res.status(500).json({ success: false, message: 'LiveKit credentials not configured' });
     }
 
-    const supervisorIdentity = `supervisor_${req.admin.id}_${Date.now()}`;
+    // Mode is embedded in the identity so downstream clients (the manager's
+    // video grid) can tell whisper/listen sessions (must stay hidden) apart
+    // from barge sessions (must render visibly, audio+video) — the LiveKit
+    // grant alone doesn't expose that distinction to other participants.
+    const safeMode = ['listen', 'whisper', 'barge'].includes(mode) ? mode : 'listen';
+    const supervisorIdentity = `supervisor_${safeMode}_${req.admin.id}_${Date.now()}`;
 
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
       identity: supervisorIdentity,
@@ -1244,9 +1249,9 @@ const generateWhisperToken = async (req, res) => {
     //           The manager-panel client instead filters this identity out
     //           of the visible video grid so it stays invisible in the UI.
     // barge   → publish audio+video, visible as a participant
-    const isListen  = mode === 'listen';
-    const isBarge   = mode === 'barge';
-    const isWhisper = mode === 'whisper';
+    const isListen  = safeMode === 'listen';
+    const isBarge   = safeMode === 'barge';
+    const isWhisper = safeMode === 'whisper';
 
     at.addGrant({
       roomJoin: true,
