@@ -222,6 +222,21 @@ const handleSocketConnection = async (socket, io) => {
                 io.to(custSocketId).emit("manager:reconnected", { message: "Manager reconnected" });
               }
             }
+
+            // Manager-panel's own socket "disconnect" handler eagerly resets
+            // its call UI to idle on any blip, before this grace-period logic
+            // even runs — so a manager who reconnects in time still has no
+            // route back into the call unless the client gets something
+            // concrete to rehydrate from. Always emit this on reconnect
+            // (not just when the grace timer was pending) since the manager's
+            // own UI has no other way to know the call survived.
+            socket.emit("manager:active-call-restored", {
+              customerPhone: custPhone,
+              callRoom: activeCustomerCalls[custPhone].callRoom,
+              customerName: activeCustomerCalls[custPhone].customerName || null,
+              referenceNumber: activeCustomerCalls[custPhone].referenceNumber || null,
+              faceVerified: activeCustomerCalls[custPhone].faceVerified || false,
+            });
           }
         });
 
@@ -239,7 +254,16 @@ const handleSocketConnection = async (socket, io) => {
               console.log(`🔁 Manager ${email} reconnected on a different pod — resumed active call with ${custPhone} cross-pod`);
               socket.user.customerPhone = custPhone;
               hasActiveCall = true;
-              await ensureLocalActiveCall(io, normalizePhone(custPhone));
+              const resumedCall = await ensureLocalActiveCall(io, normalizePhone(custPhone));
+              if (resumedCall) {
+                socket.emit("manager:active-call-restored", {
+                  customerPhone: custPhone,
+                  callRoom: resumedCall.callRoom,
+                  customerName: resumedCall.customerName || null,
+                  referenceNumber: resumedCall.referenceNumber || null,
+                  faceVerified: resumedCall.faceVerified || false,
+                });
+              }
             }
           } catch (error) {
             console.error(`⚠️ Cross-pod manager-reconnect sync failed for ${email}:`, error.message);
@@ -250,6 +274,11 @@ const handleSocketConnection = async (socket, io) => {
         if (!hasActiveCall) {
           updateUserStatus(email, "manager", AGENT_STATUS.ONLINE);
           console.log(`🟢 Manager ${email} reconnected with no active call — status reset to online`);
+          // The manager panel deliberately keeps its own call UI intact across
+          // a raw disconnect (in case the call is still alive server-side) —
+          // this tells it definitively that it is not, so it can clear
+          // instead of showing a stale in-call screen forever.
+          socket.emit("manager:no-active-call");
         }
       }
     }

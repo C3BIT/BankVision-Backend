@@ -104,6 +104,17 @@ const _findByPhone = (phone) =>
     channelId: channelId(),
   });
 
+// CBS returns a non-"000" resCode (which cbsPost turns into a thrown Error)
+// for a phone it has no customer record for at all, rather than resolving
+// with an empty array like it does for a customer with zero accounts/loans/
+// cards. Callers that mean "does this phone have any X" need that case
+// folded into "none found" instead of surfacing as a hard failure.
+const _findByPhoneOrEmpty = (phone) =>
+  _findByPhone(phone).catch((err) => {
+    if (/no record found/i.test(err.message)) return [];
+    throw err;
+  });
+
 const _linkedAccounts = (cif) =>
   cbsPost(CBS_URL_LINKED_ACC, {
     customerId: String(cif).replace(/^0+/, "") || String(cif),
@@ -164,7 +175,7 @@ const mapLinked = (acc) => ({
 // ---------------------------------------------------------------------------
 
 const lookupCustomerByPhone = async (phone) => {
-  const customers = await _findByPhone(phone);
+  const customers = await _findByPhoneOrEmpty(phone);
   if (!customers || customers.length === 0)
     return { found: false, message: "Customer not found in CBS" };
 
@@ -211,7 +222,7 @@ const lookupCustomerByPhone = async (phone) => {
 };
 
 const getAccountsByPhone = async (phone) => {
-  const customers = await _findByPhone(phone);
+  const customers = await _findByPhoneOrEmpty(phone);
   if (!customers || customers.length === 0) return [];
   const linked = await _linkedAccounts(customers[0].customerCIF).catch(() => []);
   return (linked || []).map(mapLinked);
@@ -708,7 +719,7 @@ const getUserIdentity = async (accountNumber, imageBase64) => {
 // ---------------------------------------------------------------------------
 
 const getLoansByPhone = async (phone) => {
-  const customers = await _findByPhone(phone);
+  const customers = await _findByPhoneOrEmpty(phone);
   if (!customers || customers.length === 0) return [];
   const linked = await _linkedAccounts(customers[0].customerCIF).catch(() => []);
   return (linked || [])
@@ -731,7 +742,7 @@ const getLoansByPhone = async (phone) => {
 // ---------------------------------------------------------------------------
 
 const getCardsByPhone = async (phone) => {
-  const customers = await _findByPhone(phone);
+  const customers = await _findByPhoneOrEmpty(phone);
   if (!customers || customers.length === 0) return [];
   const cif = customers[0].customerCIF;
   const data = await cbsPost(
