@@ -154,6 +154,15 @@ initPresenceSync().catch((err) =>
   console.error("⚠️ presenceSync initialization failed:", err.message)
 );
 
+// Same idea as presenceSync above, for activeCustomerCalls/activeSupervisors
+// (see callStateSync.js for why these needed their own module rather than
+// reusing presenceSync's generic key/value cache).
+const { initCallStateSync } = require("./utils/callStateSync.js");
+const { activeCustomerCalls, activeSupervisors } = require("./services/socketHandler.js");
+initCallStateSync(activeCustomerCalls, activeSupervisors).catch((err) =>
+  console.error("⚠️ callStateSync initialization failed:", err.message)
+);
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`⚡️[server]: Server is running at 0.0.0.0:${PORT}`);
 });

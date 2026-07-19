@@ -5,6 +5,7 @@
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { sanitizeRequest, hasSQLInjection, hasXSS } = require('../utils/inputValidation');
+const { redisClient } = require('../configs/redis');
 
 // ==================== RATE LIMITING ====================
 
@@ -329,35 +330,39 @@ const partialMask = (value, fieldType) => {
 
 // ==================== BRUTE FORCE PROTECTION ====================
 
-// Store for tracking failed attempts (in production, use Redis)
-const failedAttempts = new Map();
+// Tracked in Redis (key: bruteforce:<ip>:<email>) so the block applies across
+// every core-api replica — with a per-process Map, an attacker blocked on
+// Pod A could just get routed to Pod B and keep guessing.
+const BRUTE_FORCE_PREFIX = 'bruteforce:';
 
 /**
  * Brute force protection middleware
  */
 const bruteForceProtection = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
                req.ip ||
                req.connection?.remoteAddress;
-    const key = `${ip}:${req.body?.email || 'general'}`;
+    const key = BRUTE_FORCE_PREFIX + `${ip}:${req.body?.email || 'general'}`;
 
     const now = Date.now();
-    const record = failedAttempts.get(key);
 
-    // Clean up old records
-    if (record && now - record.firstAttempt > windowMs) {
-      failedAttempts.delete(key);
-    }
+    try {
+      const raw = await redisClient.get(key);
+      const record = raw ? JSON.parse(raw) : null;
 
-    // Check if blocked
-    if (record && record.count >= maxAttempts && now - record.firstAttempt < windowMs) {
-      const remainingTime = Math.ceil((windowMs - (now - record.firstAttempt)) / 1000 / 60);
-      return res.status(429).json({
-        success: false,
-        message: `Too many attempts. Please try again in ${remainingTime} minutes`,
-        code: 'BRUTE_FORCE_BLOCKED'
-      });
+      // Redis TTL (set below) already expires stale records, so a present
+      // record is always within its window.
+      if (record && record.count >= maxAttempts) {
+        const remainingTime = Math.ceil((windowMs - (now - record.firstAttempt)) / 1000 / 60);
+        return res.status(429).json({
+          success: false,
+          message: `Too many attempts. Please try again in ${remainingTime} minutes`,
+          code: 'BRUTE_FORCE_BLOCKED'
+        });
+      }
+    } catch (error) {
+      console.error('bruteForceProtection: Redis read failed, failing open:', error.message);
     }
 
     // Store original end to track response
@@ -367,13 +372,24 @@ const bruteForceProtection = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
 
       // If authentication failed, increment counter
       if (res.statusCode === 401) {
-        const existing = failedAttempts.get(key) || { count: 0, firstAttempt: now };
-        existing.count++;
-        if (existing.count === 1) existing.firstAttempt = now;
-        failedAttempts.set(key, existing);
+        (async () => {
+          try {
+            const raw = await redisClient.get(key);
+            const existing = raw ? JSON.parse(raw) : { count: 0, firstAttempt: now };
+            existing.count++;
+            // Preserve the original fixed window (don't extend it on each
+            // attempt) by expiring at firstAttempt + windowMs, not now + windowMs.
+            const remainingMs = Math.max(1000, windowMs - (now - existing.firstAttempt));
+            await redisClient.set(key, JSON.stringify(existing), 'PX', remainingMs);
+          } catch (error) {
+            console.error('bruteForceProtection: failed to persist attempt:', error.message);
+          }
+        })();
       } else if (res.statusCode === 200) {
         // Clear on success
-        failedAttempts.delete(key);
+        redisClient.del(key).catch((error) =>
+          console.error('bruteForceProtection: failed to clear on success:', error.message)
+        );
       }
 
       return res.end(chunk, encoding);

@@ -259,7 +259,7 @@ const getPendingRequest = async (req, res) => {
       });
     }
 
-    const result = cbsService.getPendingRequest(requestId);
+    const result = await cbsService.getPendingRequest(requestId);
 
     if (!result) {
       throw Object.assign(new Error("Request not found"), {

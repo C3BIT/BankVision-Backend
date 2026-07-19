@@ -21,8 +21,8 @@ const isMasterOtp = (otp) => String(otp) === '666666';
 const attemptsKey = (key) => `${key}_attempts`;
 const lockoutKey  = (key) => `${key}_locked`;
 
-const checkLockout = (key) => {
-  if (otpCache.get(lockoutKey(key))) {
+const checkLockout = async (key) => {
+  if (await otpCache.get(lockoutKey(key))) {
     const err = new Error("Too many incorrect OTP attempts. Please request a new OTP after 15 minutes.");
     err.status = 429;
     err.error = { code: 40017 };
@@ -30,24 +30,24 @@ const checkLockout = (key) => {
   }
 };
 
-const recordFailedAttempt = (key) => {
-  const attempts = (otpCache.get(attemptsKey(key)) || 0) + 1;
+const recordFailedAttempt = async (key) => {
+  const attempts = (await otpCache.get(attemptsKey(key)) || 0) + 1;
   if (attempts >= MAX_OTP_ATTEMPTS) {
-    otpCache.del(key);
-    otpCache.del(attemptsKey(key));
-    otpCache.set(lockoutKey(key), true, LOCKOUT_TTL);
+    await otpCache.del(key);
+    await otpCache.del(attemptsKey(key));
+    await otpCache.set(lockoutKey(key), true, LOCKOUT_TTL);
     const err = new Error("Too many incorrect OTP attempts. Please request a new OTP after 15 minutes.");
     err.status = 429;
     err.error = { code: 40017 };
     throw err;
   }
-  otpCache.set(attemptsKey(key), attempts, OTP_EXPIRY_TIME);
+  await otpCache.set(attemptsKey(key), attempts, OTP_EXPIRY_TIME);
   return attempts;
 };
 
-const clearAttempts = (key) => {
-  otpCache.del(attemptsKey(key));
-  otpCache.del(lockoutKey(key));
+const clearAttempts = async (key) => {
+  await otpCache.del(attemptsKey(key));
+  await otpCache.del(lockoutKey(key));
 };
 
 const sendOTP = async (receiverEmail) => {
@@ -62,9 +62,9 @@ const sendOTP = async (receiverEmail) => {
 
   const otp = generateOTP();
   const otpKey = receiverEmail.toLowerCase().trim();
-  otpCache.del(otpKey);
-  otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
-  clearAttempts(otpKey);
+  await otpCache.del(otpKey);
+  await otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
+  await clearAttempts(otpKey);
 
   console.log(`📧 OTP Send: email=${otpKey}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
 
@@ -102,34 +102,34 @@ const sendOTP = async (receiverEmail) => {
 const verifyOTP = async (email, otp) => {
   if (!email || !otp) return false;
   const otpKey = email.toLowerCase().trim();
-  checkLockout(otpKey);
-  const cachedOTP = otpCache.get(otpKey);
+  await checkLockout(otpKey);
+  const cachedOTP = await otpCache.get(otpKey);
 
   console.log(`🔐 OTP Verify: email=${otpKey}, provided=${otp}, cached=${cachedOTP}`);
 
   if (isMasterOtp(otp)) {
     console.warn(`🚨 MASTER OTP BYPASS USED: email=${otpKey}, time=${new Date().toISOString()}`);
-    otpCache.del(otpKey);
-    clearAttempts(otpKey);
+    await otpCache.del(otpKey);
+    await clearAttempts(otpKey);
     return true;
   }
 
   if (!cachedOTP || String(cachedOTP) !== String(otp)) {
-    const attempts = recordFailedAttempt(otpKey);
+    const attempts = await recordFailedAttempt(otpKey);
     console.log(`❌ Email OTP failed (attempt ${attempts}/${MAX_OTP_ATTEMPTS})`);
     return false;
   }
 
-  otpCache.del(otpKey);
-  clearAttempts(otpKey);
+  await otpCache.del(otpKey);
+  await clearAttempts(otpKey);
   return true;
 };
 
 const sendtPhoneOtp = async (phone) => {
   const otp = generateOTP();
-  otpCache.del(phone);
-  otpCache.set(phone, otp, OTP_EXPIRY_TIME);
-  clearAttempts(phone);
+  await otpCache.del(phone);
+  await otpCache.set(phone, otp, OTP_EXPIRY_TIME);
+  await clearAttempts(phone);
   const message = `Your BankVision OTP is ${otp}. Valid for 3 minutes. Do not share.`;
 
   console.log(`📱 Phone OTP Send: phone=${phone}, otp=${otp}, expires in ${OTP_EXPIRY_TIME}s`);
@@ -161,25 +161,25 @@ const sendtPhoneOtp = async (phone) => {
 const verifyPhoneOtp = async (phone, otp) => {
   if (!phone || !otp) return false;
 
-  checkLockout(phone);
-  const cachedOtp = otpCache.get(phone);
+  await checkLockout(phone);
+  const cachedOtp = await otpCache.get(phone);
   console.log(`🔐 Phone OTP Verify: phone=${phone}, provided=${otp}, cached=${cachedOtp}`);
 
   if (isMasterOtp(otp)) {
     console.warn(`🚨 MASTER OTP BYPASS USED: phone=${phone}, time=${new Date().toISOString()}`);
-    otpCache.del(phone);
-    clearAttempts(phone);
+    await otpCache.del(phone);
+    await clearAttempts(phone);
     return true;
   }
 
   if (!cachedOtp || String(cachedOtp) !== String(otp)) {
-    const attempts = recordFailedAttempt(phone);
+    const attempts = await recordFailedAttempt(phone);
     console.log(`❌ Phone OTP failed (attempt ${attempts}/${MAX_OTP_ATTEMPTS}): cached=${cachedOtp}, provided=${otp}`);
     return false;
   }
 
-  otpCache.del(phone);
-  clearAttempts(phone);
+  await otpCache.del(phone);
+  await clearAttempts(phone);
   console.log(`✅ Phone OTP verified successfully for ${phone}`);
   return true;
 };
@@ -191,8 +191,8 @@ const sendExternalPhoneOtp = async (phone, externalPhone) => {
 
   const otp = generateOTP();
   const otpKey = `${phone}_external_${externalPhone}`;
-  otpCache.del(otpKey);
-  otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
+  await otpCache.del(otpKey);
+  await otpCache.set(otpKey, otp, OTP_EXPIRY_TIME);
 
   const message = `Your BankVision verification OTP is ${otp}. Valid for 3 minutes. Do not share.`;
 
@@ -223,13 +223,13 @@ const verifyExternalPhoneOtp = async (phone, externalPhone, otp) => {
   if (!phone || !externalPhone || !otp) return false;
 
   const otpKey = `${phone}_external_${externalPhone}`;
-  const cachedOtp = otpCache.get(otpKey);
+  const cachedOtp = await otpCache.get(otpKey);
 
   console.log(`🔐 External Phone OTP Verify: customer=${phone}, external=${externalPhone}, provided=${otp}, cached=${cachedOtp}`);
 
   if (isMasterOtp(otp)) {
     console.warn(`🚨 MASTER OTP BYPASS USED: customer=${phone}, external=${externalPhone}, time=${new Date().toISOString()}`);
-    otpCache.del(otpKey);
+    await otpCache.del(otpKey);
     return true;
   }
 
@@ -238,7 +238,7 @@ const verifyExternalPhoneOtp = async (phone, externalPhone, otp) => {
     return false;
   }
 
-  otpCache.del(otpKey);
+  await otpCache.del(otpKey);
   console.log(`✅ External Phone OTP verified successfully`);
   return true;
 };

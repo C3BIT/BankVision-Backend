@@ -27,6 +27,13 @@ const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
 const OTP = require("./otpService");
 const { generateFormPDF } = require("./pdfFormService");
+const {
+  publishCallSet,
+  publishCallDelete,
+  fetchCallFromRedis,
+  publishSupervisorSet,
+  publishSupervisorDelete,
+} = require("../utils/callStateSync");
 
 const OPENVIDU_DOMAIN = process.env.OPENVIDU_DOMAIN;
 const CALL_TIMEOUT = 20000; // 20 seconds - banking industry standard
@@ -58,6 +65,30 @@ const activeSupervisors = {}; // Track supervisors monitoring calls
 // Manager keys:   `mgr:${email}:${normalizedPhone}`
 const disconnectTimers = {};
 const DISCONNECT_GRACE_MS = 15000; // 15 s to reconnect before call is force-ended
+
+// Replicates the current in-memory state of one activeCustomerCalls /
+// activeSupervisors entry to every other pod (see callStateSync.js). Call
+// after mutating fields directly on the local object — cheap enough to call
+// after every logical mutation block, not just full create/delete.
+const touchCall = (phone) => {
+  const call = activeCustomerCalls[phone];
+  if (call) publishCallSet(phone, call);
+};
+
+const removeCall = (phone) => {
+  delete activeCustomerCalls[phone];
+  publishCallDelete(phone);
+};
+
+const touchSupervisor = (socketId) => {
+  const supervisor = activeSupervisors[socketId];
+  if (supervisor) publishSupervisorSet(socketId, supervisor);
+};
+
+const removeSupervisor = (socketId) => {
+  delete activeSupervisors[socketId];
+  publishSupervisorDelete(socketId);
+};
 
 const handleSocketConnection = async (socket, io) => {
   // Normalize phone number if present for consistent tracking
@@ -97,6 +128,7 @@ const handleSocketConnection = async (socket, io) => {
         role,
         connectedAt: Date.now()
       };
+      touchSupervisor(socketId);
     } else {
       await addUserInCache(phone, role, socketId, name, email);
       console.log(
@@ -118,6 +150,7 @@ const handleSocketConnection = async (socket, io) => {
         if (activeCustomerCalls[normalizedPhone]) {
           console.log(`♻️ Customer ${normalizedPhone} reconnected - updating call state socketId: ${socketId}`);
           activeCustomerCalls[normalizedPhone].customerSocketId = socketId;
+          touchCall(normalizedPhone);
 
           // Cancel the grace-period timer if customer reconnects in time
           if (disconnectTimers[normalizedPhone]) {
@@ -141,6 +174,7 @@ const handleSocketConnection = async (socket, io) => {
           const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
           if (activeCall) {
             activeCall.customerSocketId = socketId;
+            touchCall(normalizedPhone);
             try {
               const results = await io.serverSideEmitWithAck("cancel-disconnect-timer-local", normalizedPhone);
               if (results.some(Boolean)) {
@@ -172,6 +206,7 @@ const handleSocketConnection = async (socket, io) => {
           if (activeCustomerCalls[custPhone].currentManagerEmail === email) {
             console.log(`♻️ Manager ${email} reconnected - updating active call with ${custPhone} to socketId: ${socketId}`);
             activeCustomerCalls[custPhone].managerSocketId = socketId;
+            touchCall(custPhone);
             // Restore customerPhone on the new socket so manager operations work
             socket.user.customerPhone = custPhone;
             hasActiveCall = true;
@@ -394,6 +429,7 @@ const handleSocketConnection = async (socket, io) => {
         if (customerEmail) activeCustomerCalls[phone].customerEmail = customerEmail;
         if (customerName) activeCustomerCalls[phone].customerName = customerName;
         if (customerAccountNumber) activeCustomerCalls[phone].customerAccountNumber = customerAccountNumber;
+        touchCall(phone);
 
         // Update call log if exists
         if (activeCustomerCalls[phone].callLogId) {
@@ -771,6 +807,7 @@ const handleSocketConnection = async (socket, io) => {
           call.isRecording = true;
           call.recordingId = recording.id;
           call.recordingStartTime = Date.now();
+          touchCall(customerPhone);
           io.to(call.customerSocketId).emit("call:recording-started", {
             recordingId: recording.id,
             message: "This call is being recorded",
@@ -827,6 +864,7 @@ const handleSocketConnection = async (socket, io) => {
           call.isRecording = false;
           delete call.recordingId;
           delete call.recordingStartTime;
+          touchCall(customerPhone);
           io.to(call.customerSocketId).emit("call:recording-stopped", { recordingId, duration, timestamp: Date.now() });
           socket.emit("recording:stopped", { recordingId, duration });
           if (call.supervisors) {
@@ -964,6 +1002,7 @@ const handleSocketConnection = async (socket, io) => {
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
         managerPreviousStatus: previousStatus,
       };
+      touchCall(normalizedPhone);
 
       socket.user.customerPhone = normalizedPhone;
 
@@ -987,6 +1026,7 @@ const handleSocketConnection = async (socket, io) => {
         if (activeCustomerCalls[normalizedPhone]) {
           activeCustomerCalls[normalizedPhone].callLogId = createdCallLog?.id;
           activeCustomerCalls[normalizedPhone].referenceNumber = createdCallLog?.referenceNumber;
+          touchCall(normalizedPhone);
         }
         await callLogService.acceptCall(callRoom);
 
@@ -1016,6 +1056,7 @@ const handleSocketConnection = async (socket, io) => {
                   if (activeCustomerCalls[normalizedPhone]) {
                     activeCustomerCalls[normalizedPhone].egressId = recordingResult.egressId;
                     activeCustomerCalls[normalizedPhone].recordingId = recordingResult.recordingId;
+                    touchCall(normalizedPhone);
                   }
                   console.log(`🎬 Auto-recording started for call ${callRoom}`);
                   return;
@@ -1155,6 +1196,7 @@ const handleSocketConnection = async (socket, io) => {
           if (s.user && normalizePhone(s.user.phone) === customerPhone) {
             customerSocketId = s.id;
             activeCustomerCalls[customerPhone].customerSocketId = customerSocketId;
+            touchCall(customerPhone);
             console.log(`✅ Found active customer socket: ${customerSocketId}`);
             break;
           }
@@ -1201,6 +1243,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Track verification in active call
       activeCustomerCalls[normalizedPhone].phoneVerified = true;
+      touchCall(normalizedPhone);
 
       // Update call log
       if (activeCall.callRoom) {
@@ -1283,6 +1326,7 @@ const handleSocketConnection = async (socket, io) => {
           if (s.user && normalizePhone(s.user.phone) === customerPhone) {
             customerSocketId = s.id;
             activeCustomerCalls[customerPhone].customerSocketId = customerSocketId;
+            touchCall(customerPhone);
             console.log(`✅ Found active customer socket: ${customerSocketId}`);
             break;
           }
@@ -1333,6 +1377,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Track verification in active call
       activeCustomerCalls[normalizedPhone].emailVerified = true;
+      touchCall(normalizedPhone);
 
       // Update call log
       if (activeCall.callRoom) {
@@ -1755,6 +1800,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Cache on the active call so the approve handler can use it
       activeCustomerCalls[normalizedPhone].dormantExtraFields = data;
+      touchCall(normalizedPhone);
     });
 
     // Manager typing account number (new field) - relay to customer
@@ -2050,11 +2096,13 @@ const handleSocketConnection = async (socket, io) => {
         // Clean up timeout reference
         if (activeCustomerCalls[customerPhone]) {
           delete activeCustomerCalls[customerPhone].faceVerificationTimeout;
+          touchCall(customerPhone);
         }
       }, timeoutDuration);
 
       // Store timeout ID for cleanup
       activeCustomerCalls[customerPhone].faceVerificationTimeout = timeoutId;
+      touchCall(customerPhone);
 
       io.to(customerSocketId).emit("manager:initiate-face-verification", {
         message: "Manager has initiated face verification",
@@ -2116,6 +2164,7 @@ const handleSocketConnection = async (socket, io) => {
       // Update call state
       activeCall.faceVerified = true;
       activeCall.faceMatchPercentage = matchPercentage;
+      touchCall(normalizedCustomerId);
 
       // Notify both parties
       const eventData = {
@@ -2154,6 +2203,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Ensure manager socket ID is fresh
       activeCall.managerSocketId = socket.id;
+      touchCall(customerPhone);
 
       // Find current customer socket ID robustly
       const customerSocketId = getOnlineUsersWithInfo().find(
@@ -2266,6 +2316,7 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!activeCustomerCalls[normalizedCustomerId]) return;
       activeCustomerCalls[normalizedCustomerId].managerSocketId = socket.id;
+      touchCall(normalizedCustomerId);
 
       const customerSocketId = activeCustomerCalls[normalizedCustomerId].customerSocketId;
 
@@ -2286,6 +2337,7 @@ const handleSocketConnection = async (socket, io) => {
       // Update call flags
       if (decision === 'approve' || decision === 'approved') {
         activeCustomerCalls[normalizedCustomerId].signatureVerified = true;
+        touchCall(normalizedCustomerId);
       }
     });
     // ============ END SIGNATURE VERIFICATION EVENTS ============
@@ -3110,6 +3162,7 @@ const handleSocketConnection = async (socket, io) => {
 
       // Store in active call
       activeCustomerCalls[customerPhone].assistanceRequest = assistanceRequest;
+      touchCall(customerPhone);
 
       // Broadcast to all supervisors/admins
       io.emit("supervisor:assistance-requested", assistanceRequest);
@@ -3136,6 +3189,7 @@ const handleSocketConnection = async (socket, io) => {
       const assistanceRequest = activeCustomerCalls[customerPhone].assistanceRequest;
       if (assistanceRequest) {
         assistanceRequest.status = "cancelled";
+        touchCall(customerPhone);
 
         // Broadcast cancellation
         io.emit("supervisor:assistance-cancelled", {
@@ -3146,6 +3200,7 @@ const handleSocketConnection = async (socket, io) => {
         });
 
         delete activeCustomerCalls[customerPhone].assistanceRequest;
+        touchCall(customerPhone);
 
         socket.emit("manager:assistance-cancelled", {
           message: "Assistance request cancelled"
@@ -3179,6 +3234,7 @@ const handleSocketConnection = async (socket, io) => {
 
         if (activeCustomerCalls[customerPhone].assistanceRequest) {
           activeCustomerCalls[customerPhone].assistanceRequest.status = "responded";
+          touchCall(customerPhone);
         }
 
         console.log(`🆘 Supervisor ${email} responded to assistance request for ${customerPhone}`);
@@ -3318,6 +3374,7 @@ const handleSocketConnection = async (socket, io) => {
       // Update call with new manager
       const previousManager = activeCall.currentManagerEmail;
       activeCall.currentManagerEmail = email;
+      touchCall(customerPhone);
       socket.user.customerPhone = customerPhone;
 
       // Update manager statuses
@@ -3464,6 +3521,8 @@ const handleSocketConnection = async (socket, io) => {
         customerPhone,
         mode
       };
+      touchSupervisor(socket.id);
+      touchCall(customerPhone);
 
       // Get manager socket to notify
       const managerSocketId = getOnlineUsersWithInfo().find(
@@ -3515,7 +3574,9 @@ const handleSocketConnection = async (socket, io) => {
       // Update activeSupervisors
       if (activeSupervisors[socket.id]) {
         activeSupervisors[socket.id].mode = "whisper";
+        touchSupervisor(socket.id);
       }
+      touchCall(customerPhone);
 
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === call.currentManagerEmail
@@ -3559,7 +3620,9 @@ const handleSocketConnection = async (socket, io) => {
       // Update activeSupervisors
       if (activeSupervisors[socket.id]) {
         activeSupervisors[socket.id].mode = "listen";
+        touchSupervisor(socket.id);
       }
+      touchCall(customerPhone);
 
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === call.currentManagerEmail
@@ -3673,7 +3736,9 @@ const handleSocketConnection = async (socket, io) => {
       // Update activeSupervisors
       if (activeSupervisors[socket.id]) {
         activeSupervisors[socket.id].mode = "barge";
+        touchSupervisor(socket.id);
       }
+      touchCall(customerPhone);
 
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === call.currentManagerEmail
@@ -3741,6 +3806,7 @@ const handleSocketConnection = async (socket, io) => {
       call.currentManagerEmail = supervisorId;
       call.takenOverAt = Date.now();
       call.takenOverBy = supervisorId;
+      touchCall(customerPhone);
 
       // Notify customer
       io.to(call.customerSocketId).emit("call:manager-changed", {
@@ -3776,10 +3842,11 @@ const handleSocketConnection = async (socket, io) => {
       // Remove supervisor from call
       if (call.supervisors) {
         call.supervisors = call.supervisors.filter(s => s.id !== supervisorId);
+        touchCall(customerPhone);
       }
 
       // Remove from activeSupervisors
-      delete activeSupervisors[socket.id];
+      removeSupervisor(socket.id);
 
       const managerSocketId = getOnlineUsersWithInfo().find(
         (user) => user.email === call.currentManagerEmail
@@ -3828,6 +3895,7 @@ const handleSocketConnection = async (socket, io) => {
       activeCustomerCalls[customerPhone].isOnHold = true;
       activeCustomerCalls[customerPhone].holdStartTime = Date.now();
       activeCustomerCalls[customerPhone].holdReason = reason;
+      touchCall(customerPhone);
 
       // Notify customer
       io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
@@ -3872,6 +3940,7 @@ const handleSocketConnection = async (socket, io) => {
         (activeCustomerCalls[customerPhone].totalHoldTime || 0) + holdDuration;
       delete activeCustomerCalls[customerPhone].holdStartTime;
       delete activeCustomerCalls[customerPhone].holdReason;
+      touchCall(customerPhone);
 
       // Notify customer
       io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
@@ -3971,6 +4040,7 @@ const handleSocketConnection = async (socket, io) => {
       if (activeCustomerCalls[customerPhone].faceVerificationTimeout) {
         clearTimeout(activeCustomerCalls[customerPhone].faceVerificationTimeout);
         delete activeCustomerCalls[customerPhone].faceVerificationTimeout;
+        touchCall(customerPhone);
       }
 
       // Check if customer is still connected (cluster-aware, via Redis adapter)
@@ -4060,6 +4130,7 @@ const handleSocketConnection = async (socket, io) => {
       if (activeCall.faceVerificationTimeout) {
         clearTimeout(activeCall.faceVerificationTimeout);
         delete activeCall.faceVerificationTimeout;
+        touchCall(normalizedPhone);
         console.log(`✅ Cleared face verification timeout for customer ${normalizedPhone}`);
       }
 
@@ -4103,6 +4174,7 @@ const handleSocketConnection = async (socket, io) => {
         if (verificationResult.verified) {
           activeCustomerCalls[normalizedPhone].faceVerified = true;
           activeCustomerCalls[normalizedPhone].faceMatchScore = verificationResult.score;
+          touchCall(normalizedPhone);
 
           // Update call log
           if (activeCall.callRoom) {
@@ -4176,6 +4248,7 @@ const handleSocketConnection = async (socket, io) => {
       // Track face verification in active call
       if (isVerified) {
         activeCustomerCalls[customerPhone].faceVerified = true;
+        touchCall(customerPhone);
 
         // Update call log
         if (activeCustomerCalls[customerPhone].callRoom) {
@@ -4226,6 +4299,7 @@ const handleSocketConnection = async (socket, io) => {
         activeCustomerCalls[customerPhone].faceVerified = true;
         activeCustomerCalls[customerPhone].faceVerificationOverride = managerOverride || false;
         activeCustomerCalls[customerPhone].faceVerificationSimilarity = similarity;
+        touchCall(customerPhone);
 
         // Update call log with verification decision
         if (activeCustomerCalls[customerPhone].callRoom) {
@@ -4253,6 +4327,7 @@ const handleSocketConnection = async (socket, io) => {
         activeCustomerCalls[customerPhone].faceVerified = false;
         activeCustomerCalls[customerPhone].faceVerificationRejected = true;
         activeCustomerCalls[customerPhone].faceVerificationOverride = managerOverride || false;
+        touchCall(customerPhone);
 
         if (activeCustomerCalls[customerPhone].callRoom) {
           try {
@@ -4316,6 +4391,7 @@ const handleSocketConnection = async (socket, io) => {
         // Increment chat message count
         activeCustomerCalls[customerPhone].chatMessagesCount =
           (activeCustomerCalls[customerPhone].chatMessagesCount || 0) + 1;
+        touchCall(customerPhone);
 
         const chatMessage = {
           id: messageId,
@@ -4346,6 +4422,7 @@ const handleSocketConnection = async (socket, io) => {
         // Increment chat message count
         activeCustomerCalls[normalizedPhone].chatMessagesCount =
           (activeCustomerCalls[normalizedPhone].chatMessagesCount || 0) + 1;
+        touchCall(normalizedPhone);
 
         const managerSocketId = getOnlineUsersWithInfo().find(
           (user) => user.email === activeCall.currentManagerEmail
@@ -4511,7 +4588,7 @@ const handleSocketConnection = async (socket, io) => {
       // Handle admin/supervisor disconnect
       if (isAdmin || role === 'admin' || role === 'supervisor') {
         console.log(`❌ Admin/Supervisor disconnected: ${socketId} | Role: ${role} | Email: ${email}`);
-        delete activeSupervisors[socketId];
+        removeSupervisor(socketId);
         return;
       }
 
@@ -4797,6 +4874,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
     selectedManager.email;
   activeCustomerCalls[normalizedCustomerPhone].managerSocketId =
     selectedManager.socketId;
+  touchCall(normalizedCustomerPhone);
 
   const roomId = crypto
     .createHash("sha256")
@@ -4808,6 +4886,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   // Store room ID for OpenVidu/LiveKit (just the ID, not full URL)
   activeCustomerCalls[normalizedCustomerPhone].callRoom = roomId;
   activeCustomerCalls[normalizedCustomerPhone].callRoomLink = callRoomLink;
+  touchCall(normalizedCustomerPhone);
 
   const managerSocket = io.sockets.sockets.get(selectedManager.socketId);
   if (managerSocket) {
@@ -4859,6 +4938,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
     const allMgrs = getAllManagers();
     const mgr = allMgrs.find(m => m.email === selectedManager.email);
     activeCustomerCalls[normalizedCustomerPhone].managerPreviousStatus = mgr?.status || AGENT_STATUS.ONLINE;
+    touchCall(normalizedCustomerPhone);
   }
 
   // Update manager status
@@ -5012,7 +5092,7 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
   await removeCustomerFromQueue(normalizedPhone);
 
   delete rejectedManagers[normalizedPhone];
-  delete activeCustomerCalls[normalizedPhone];
+  removeCall(normalizedPhone);
   console.log(
     `✅ Successfully cleared call state for customer ${normalizedPhone}`
   );
@@ -5195,6 +5275,7 @@ const checkQueueAndRouteCall = async (managerSocket, managerEmail, managerName, 
     fromQueue: true,
     verificationInfo: nextInQueue.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
   };
+  touchCall(normalizedCustomerPhone);
 
   // BROADCAST: Send call request to all selected managers simultaneously
   for (const manager of selectedManagers) {
@@ -5381,16 +5462,18 @@ const isManagerAssignedToCustomer = async (managerEmail, { phone, accountNumber 
 };
 
 // Serializable snapshot of one local active call for cross-pod requests (see
-// ensureLocalActiveCall below). `timeout` is a Node Timer (not serializable,
-// and only meaningful on the pod that owns it) and `attemptedManagers` is a
-// Set (socket.io can't transport it as-is), so both are converted.
+// ensureLocalActiveCall below). `timeout`/`faceVerificationTimeout` are Node
+// Timers (not serializable, and only meaningful on the pod that owns them)
+// and `attemptedManagers`/`broadcastedManagers` are Sets (socket.io can't
+// transport them as-is), so all four are converted/dropped.
 const getActiveCallLocalRaw = (normalizedPhone) => {
   const call = activeCustomerCalls[normalizedPhone];
   if (!call) return null;
-  const { timeout, attemptedManagers, ...safe } = call;
+  const { timeout, faceVerificationTimeout, attemptedManagers, broadcastedManagers, ...safe } = call;
   return {
     ...safe,
     attemptedManagers: attemptedManagers ? Array.from(attemptedManagers) : [],
+    broadcastedManagers: broadcastedManagers ? Array.from(broadcastedManagers) : [],
   };
 };
 
@@ -5417,7 +5500,9 @@ const ensureLocalActiveCall = async (io, normalizedPhone) => {
     activeCustomerCalls[normalizedPhone] = {
       ...found,
       timeout: null,
+      faceVerificationTimeout: null,
       attemptedManagers: new Set(found.attemptedManagers || []),
+      broadcastedManagers: new Set(found.broadcastedManagers || []),
     };
     console.log(`🔁 Adopted cross-pod active-call copy for customer ${normalizedPhone}`);
     return activeCustomerCalls[normalizedPhone];
@@ -5454,6 +5539,7 @@ const handleManagerReconnectLocal = (io, email, newSocketId) => {
     if (call.currentManagerEmail === email) {
       custPhone = phone;
       call.managerSocketId = newSocketId;
+      touchCall(phone);
       const timerKey = `mgr:${email}:${normalizePhone(phone)}`;
       if (disconnectTimers[timerKey]) {
         clearTimeout(disconnectTimers[timerKey]);
@@ -5480,4 +5566,6 @@ module.exports = {
   cancelDisconnectTimerLocal,
   handleManagerReconnectLocal,
   clearActiveCustomerCallLocal,
+  activeCustomerCalls,
+  activeSupervisors,
 };

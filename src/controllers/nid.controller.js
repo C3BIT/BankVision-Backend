@@ -2,9 +2,24 @@ const axios = require("axios");
 const crypto = require("crypto");
 const { OPENCV_SERVICE_URL } = require("../configs/variables");
 const cbsService = require("../services/cbsRealService");
+const { redisClient } = require("../configs/redis");
 
-// In-memory sessions (same TTL pattern as mock)
-const pendingVerifications = new Map();
+// Redis-backed sessions — must be shared across core-api replicas, since a
+// customer's initiate/face-match/complete steps within one verification
+// flow can each land on a different pod. Redis TTL replaces the old manual
+// interval-based sweep.
+const NID_PREFIX = "nid:verification:";
+
+const getVerification = async (id) => {
+    const raw = await redisClient.get(NID_PREFIX + id);
+    return raw ? JSON.parse(raw) : null;
+};
+const setVerification = async (id, data, ttlMs) => {
+    await redisClient.set(NID_PREFIX + id, JSON.stringify(data), "PX", ttlMs);
+};
+const deleteVerification = async (id) => {
+    await redisClient.del(NID_PREFIX + id);
+};
 
 const generateVerificationId = () =>
     `NID_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
@@ -13,13 +28,6 @@ const validateNIDFormat = (nidNumber) => {
     const cleaned = nidNumber.replace(/\D/g, "");
     return cleaned.length === 10 || cleaned.length === 17;
 };
-
-setInterval(() => {
-    const now = Date.now();
-    for (const [id, v] of pendingVerifications.entries()) {
-        if (now > v.expiresAt && v.status === "pending") pendingVerifications.delete(id);
-    }
-}, 5 * 60 * 1000);
 
 /**
  * GET /api/nid/lookup/:nidNumber
@@ -97,7 +105,8 @@ const initiateVerification = async (req, res) => {
         }
 
         const verificationId = generateVerificationId();
-        pendingVerifications.set(verificationId, {
+        const verificationTtlMs = 10 * 60 * 1000;
+        await setVerification(verificationId, {
             nidNumber: cleaned,
             accountNumber,
             customerName: detail.name,
@@ -106,9 +115,9 @@ const initiateVerification = async (req, res) => {
             nidMatched: true,
             faceMatched: false,
             faceMatchScore: null,
-            expiresAt: Date.now() + 10 * 60 * 1000,
+            expiresAt: Date.now() + verificationTtlMs,
             createdAt: Date.now(),
-        });
+        }, verificationTtlMs);
 
         res.json({
             success: true,
@@ -141,13 +150,13 @@ const submitFaceMatch = async (req, res) => {
             return res.status(400).json({ success: false, message: "Verification ID is required" });
         }
 
-        const verification = pendingVerifications.get(verificationId);
+        const verification = await getVerification(verificationId);
         if (!verification) {
             return res.status(400).json({ success: false, message: "Invalid or expired verification session" });
         }
 
         if (Date.now() > verification.expiresAt) {
-            pendingVerifications.delete(verificationId);
+            await deleteVerification(verificationId);
             return res.status(400).json({ success: false, message: "Verification session has expired" });
         }
 
@@ -155,6 +164,7 @@ const submitFaceMatch = async (req, res) => {
             // CBS photo not yet available — skip face match step
             verification.faceMatched = true;
             verification.faceMatchScore = null;
+            await setVerification(verificationId, verification, Math.max(1000, verification.expiresAt - Date.now()));
             return res.json({
                 success: true,
                 data: {
@@ -179,6 +189,7 @@ const submitFaceMatch = async (req, res) => {
 
         verification.faceMatched = matched;
         verification.faceMatchScore = similarity;
+        await setVerification(verificationId, verification, Math.max(1000, verification.expiresAt - Date.now()));
 
         res.json({
             success: true,
@@ -206,13 +217,13 @@ const completeVerification = async (req, res) => {
             return res.status(400).json({ success: false, message: "Verification ID is required" });
         }
 
-        const verification = pendingVerifications.get(verificationId);
+        const verification = await getVerification(verificationId);
         if (!verification) {
             return res.status(400).json({ success: false, message: "Invalid or expired verification session" });
         }
 
         if (Date.now() > verification.expiresAt) {
-            pendingVerifications.delete(verificationId);
+            await deleteVerification(verificationId);
             return res.status(400).json({ success: false, message: "Verification session has expired" });
         }
 
@@ -236,7 +247,9 @@ const completeVerification = async (req, res) => {
             completedAt: new Date().toISOString(),
         };
 
-        setTimeout(() => pendingVerifications.delete(verificationId), 60000);
+        // Keep the completed record readable via getVerificationStatus for 60s
+        // (was setTimeout+delete against the in-memory Map), then let it expire.
+        await setVerification(verificationId, verification, 60000);
 
         res.json({ success: true, data: result });
     } catch (error) {
@@ -256,7 +269,7 @@ const getVerificationStatus = async (req, res) => {
             return res.status(400).json({ success: false, message: "Verification ID is required" });
         }
 
-        const verification = pendingVerifications.get(verificationId);
+        const verification = await getVerification(verificationId);
         if (!verification) {
             return res.status(404).json({ success: false, message: "Verification not found" });
         }

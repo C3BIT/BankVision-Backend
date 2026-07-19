@@ -46,6 +46,8 @@ const {
   CBS_DEFAULT_PURPOSE,
   CBS_DEFAULT_BUGID,
 } = require("../configs/variables");
+const { redisClient } = require("../configs/redis");
+
 const REQUEST_TYPES = {
   PHONE_CHANGE: "phone_change",
   EMAIL_CHANGE: "email_change",
@@ -54,8 +56,22 @@ const REQUEST_TYPES = {
   IDENTITY_VERIFY: "identity_verify",
 };
 
-// In-memory OTP state (same pattern as mock)
-const pendingRequests = new Map();
+// Redis-backed OTP state — a customer's request/verify/commit steps for a
+// single change-request can land on different core-api replicas, so this
+// must be shared rather than per-process. Redis TTL replaces the old
+// interval-based sweep.
+const CBS_PREFIX = "cbs:pending:";
+
+const getPendingReq = async (id) => {
+  const raw = await redisClient.get(CBS_PREFIX + id);
+  return raw ? JSON.parse(raw) : null;
+};
+const setPendingReq = async (id, data, ttlMs) => {
+  await redisClient.set(CBS_PREFIX + id, JSON.stringify(data), "PX", ttlMs);
+};
+const deletePendingReq = async (id) => {
+  await redisClient.del(CBS_PREFIX + id);
+};
 
 const generateRequestId = () =>
   `CBS_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
@@ -309,7 +325,7 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
       .catch((err) => console.error("[CBS] Email delivery failed:", err.message));
   }
 
-  pendingRequests.set(requestId, {
+  await setPendingReq(requestId, {
     accountNumber,
     type,
     destination,
@@ -318,7 +334,7 @@ const requestOtp = async (accountNumber, type, destination, newValue = null) => 
     expiresAt,
     verified: false,
     attempts: 0,
-  });
+  }, expiresAt - Date.now());
 
   console.log(`[CBS Real] OTP ${otp} dispatched → ${sendTo} via ${sendVia}`);
   const masked = sendTo ? String(sendTo).replace(/(.{3}).*(.{3})/, "$1***$2") : "***";
@@ -335,20 +351,21 @@ const verifyOtp = async (requestId, otp) => {
   if (requestId === "MANAGER_APPROVAL")
     return { verified: true, message: "OTP verified via backend approval" };
 
-  const request = pendingRequests.get(requestId);
+  const request = await getPendingReq(requestId);
   if (!request) throw new Error("Invalid or expired request");
   if (Date.now() > request.expiresAt) {
-    pendingRequests.delete(requestId);
+    await deletePendingReq(requestId);
     throw new Error("OTP has expired");
   }
   if (request.attempts >= 3) {
-    pendingRequests.delete(requestId);
+    await deletePendingReq(requestId);
     throw new Error("Maximum attempts exceeded");
   }
 
   request.attempts++;
   const isMaster = String(otp) === "666666";
   if (!isMaster && request.otp !== String(otp)) {
+    await setPendingReq(requestId, request, Math.max(1000, request.expiresAt - Date.now()));
     return {
       verified: false,
       message: "Invalid OTP",
@@ -357,6 +374,7 @@ const verifyOtp = async (requestId, otp) => {
   }
 
   request.verified = true;
+  await setPendingReq(requestId, request, Math.max(1000, request.expiresAt - Date.now()));
 
   let nextStep = null;
   switch (request.type) {
@@ -458,7 +476,7 @@ const updatePhone = async (accountNumber, requestId, otp, newPhone) => {
   const v = await verifyOtp(requestId, otp);
   if (!v.verified) return v;
   await _commitUpdate(accountNumber, { p_mobile_number: newPhone });
-  pendingRequests.delete(requestId);
+  await deletePendingReq(requestId);
   console.log(`[CBS Real] Phone updated for ${accountNumber}`);
   return {
     success: true,
@@ -471,7 +489,7 @@ const updateEmail = async (accountNumber, requestId, otp, newEmail) => {
   const v = await verifyOtp(requestId, otp);
   if (!v.verified) return v;
   await _commitUpdate(accountNumber, { emailadd1: newEmail });
-  pendingRequests.delete(requestId);
+  await deletePendingReq(requestId);
   console.log(`[CBS Real] Email updated for ${accountNumber}`);
   return {
     success: true,
@@ -565,7 +583,7 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
   }
 
   console.log(`[CBS Addr] SaveAddressInfo success for ${accountNumber}`);
-  pendingRequests.delete(requestId);
+  await deletePendingReq(requestId);
   return { success: true, message: "Address updated successfully in CBS", addressType };
 };
 
@@ -605,8 +623,8 @@ const updateOMSContact = async ({ cardPan, messageID, cardClient, mbr, messageCh
   return data.data;
 };
 
-const getPendingRequest = (requestId) => {
-  const request = pendingRequests.get(requestId);
+const getPendingRequest = async (requestId) => {
+  const request = await getPendingReq(requestId);
   if (!request) return null;
   return {
     requestId,
@@ -617,14 +635,6 @@ const getPendingRequest = (requestId) => {
     otp: process.env.NODE_ENV === "development" ? request.otp : undefined,
   };
 };
-
-// Cleanup expired requests every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, req] of pendingRequests.entries()) {
-    if (now > req.expiresAt) pendingRequests.delete(id);
-  }
-}, 5 * 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // Customer photo and signature (pending MTB API provisioning)
@@ -764,7 +774,7 @@ const activateAccount = async (accountNumber, requestId, otp, nidNumber) => {
     { accountNo: accountNumber, customerId: cif, refNo: refNo(), channelId: channelId() }
   );
 
-  pendingRequests.delete(requestId);
+  await deletePendingReq(requestId);
   console.log(`[CBS Real] Account activated: ${accountNumber}`);
   return {
     success: true,
