@@ -8,7 +8,6 @@ const {
   verifyExternalPhoneOtpController,
 } = require('../controllers/otp.controller');
 const { otpRateLimiter } = require('../middlewares/rateLimiter');
-const { requireCaptcha } = require('../middlewares/captchaMiddleware');
 
 const router = Router();
 
@@ -61,7 +60,7 @@ router.post('/send', otpRateLimiter, sendOtpController);
  *       200: { description: OTP sent }
  *       429: { description: Rate limited }
  */
-router.post('/send-phone', requireCaptcha, otpRateLimiter, sendPhoneOtpController);
+router.post('/send-phone', otpRateLimiter, sendPhoneOtpController);
 
 /**
  * @swagger
