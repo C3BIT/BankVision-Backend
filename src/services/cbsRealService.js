@@ -580,10 +580,13 @@ const updateAddress = async (accountNumber, requestId, otp, newAddress, addressT
 
   console.log(`[CBS Addr] SaveAddressInfo payload:`, JSON.stringify(payload));
 
+  // SaveAddressInfo sits on the same coreMiddleware host as UpdateCustomer/OMS
+  // update — those two write endpoints 401 with the shared CBS_USERNAME/
+  // CBS_PASSWORD Basic Auth and were already fixed to call without it; apply
+  // the same fix here since address save is a write endpoint on the same host.
   const res = await axios.post(CBS_URL_SAVE_ADDRESS, payload, {
     timeout: 15000,
     httpsAgent: new (require("https").Agent)({ rejectUnauthorized: false }),
-    auth: { username: CBS_USERNAME, password: CBS_PASSWORD },
   });
 
   const data = res.data;

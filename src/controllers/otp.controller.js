@@ -86,7 +86,7 @@ const sendPhoneOtpController = async (req, res) => {
 
 const verifyPhoneOtpController = async (req, res) => {
   try {
-    const { phone, otp } = req.body;
+    const { phone, otp, isChangeRequest } = req.body;
     if (!phone) {
       throw Object.assign(new Error("Phone number is required"), {
         status: statusCodes.BAD_REQUEST,
@@ -107,10 +107,18 @@ const verifyPhoneOtpController = async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ phone, role: "customer" }, jwtSecret, {
-      expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
-    });
-    setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");
+    // A mid-call "change phone" verification proves ownership of the NEW,
+    // not-yet-manager-approved number — it must not re-issue the session
+    // cookie under that number, or the customer's socket re-authenticates
+    // as the new (unapproved) phone on its next reconnect, orphaning the
+    // in-progress call and silently breaking every request the customer
+    // submits for the rest of the session (address/dormant/email included).
+    if (!isChangeRequest) {
+      const token = jwt.sign({ phone, role: "customer" }, jwtSecret, {
+        expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
+      });
+      setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");
+    }
 
     res.success({ isVerified }, "Verification Successful.");
   } catch (error) {
