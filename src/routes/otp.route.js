@@ -39,7 +39,7 @@ const router = Router();
  *       200: { description: OTP sent, content: { application/json: { schema: { $ref: '#/components/schemas/Success' } } } }
  *       429: { description: Rate limited }
  */
-router.post('/send', requireCaptcha, otpRateLimiter, sendOtpController);
+router.post('/send', otpRateLimiter, sendOtpController);
 
 /**
  * @swagger

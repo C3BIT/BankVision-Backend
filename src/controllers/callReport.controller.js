@@ -146,9 +146,24 @@ const getReports = async (req, res) => {
       offset: parseInt(offset, 10) || 0,
     });
 
+    // MariaDB has no native JSON type (DataTypes.JSON is aliased to LONGTEXT),
+    // so mysql2 doesn't auto-parse it the way it would on real MySQL —
+    // serviceTypes can come back as a raw JSON string instead of an array.
+    const reports = rows.map((row) => {
+      const report = row.toJSON();
+      if (typeof report.serviceTypes === "string") {
+        try {
+          report.serviceTypes = JSON.parse(report.serviceTypes);
+        } catch {
+          report.serviceTypes = [];
+        }
+      }
+      return report;
+    });
+
     res.status(200).json({
       success: true,
-      data: { reports: rows, total: count },
+      data: { reports, total: count },
     });
   } catch (error) {
     console.error("Get call reports error:", error);

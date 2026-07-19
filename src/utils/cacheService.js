@@ -1,4 +1,5 @@
 const { userCache } = require("./memoryCache");
+const presenceSync = require("./presenceSync");
 
 // Valid agent status types
 const AGENT_STATUS = {
@@ -40,7 +41,7 @@ const addUserInCache = async (
   const uniqueKey = role === "customer" ? phone : email;
 
   if (role === "customer") {
-    userCache.set(uniqueKey, {
+    presenceSync.publishSet(uniqueKey, {
       phone,
       socketId,
       role,
@@ -63,7 +64,7 @@ const addUserInCache = async (
       // Continue with default "online" status
     }
 
-    userCache.set(uniqueKey, {
+    presenceSync.publishSet(uniqueKey, {
       email,
       name,
       socketId,
@@ -94,7 +95,7 @@ const getUserBySocketId = (socketId) => {
 const removeUserInCache = (socketId) => {
   userCache.keys().forEach((key) => {
     if (userCache.get(key)?.socketId === socketId) {
-      userCache.del(key);
+      presenceSync.publishDel(key);
     }
   });
 };
@@ -156,7 +157,7 @@ const updateUserStatus = (email, role, status) => {
       if (validStatuses.includes(status)) {
         managerData.status = status;
         managerData.statusChangedAt = new Date().toISOString();
-        userCache.set(email, managerData);
+        presenceSync.publishSet(email, managerData);
 
         // Persist to Redis for status restoration on reconnect (fire-and-forget)
         const managerStatusService = require('../services/managerStatusService');

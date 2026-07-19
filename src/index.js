@@ -146,6 +146,14 @@ const { adminAuthenticateMiddleware } = require('./middlewares/adminAuthMiddlewa
 app.use('/admin/queues', adminAuthenticateMiddleware, serverAdapter.getRouter());
 console.log('📊 Bull Board dashboard available at /admin/queues (protected)');
 
+// Hydrate this pod's local manager/customer presence cache from Redis (and
+// subscribe to cross-pod updates) before accepting any socket connections —
+// see presenceSync.js for why this exists.
+const { initPresenceSync } = require("./utils/presenceSync.js");
+initPresenceSync().catch((err) =>
+  console.error("⚠️ presenceSync initialization failed:", err.message)
+);
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`⚡️[server]: Server is running at 0.0.0.0:${PORT}`);
 });

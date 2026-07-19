@@ -51,6 +51,16 @@ router.post("/customer/cards", managerAuthenticateMiddleware, cbsController.getC
  *       200: { description: Loans list }
  */
 router.post("/customer/loans", managerAuthenticateMiddleware, cbsController.getLoans);
+/**
+ * @swagger
+ * /cbs/customer/details:
+ *   post:
+ *     summary: Get a customer's full account details (address, cards, loans) for the manager side of an active call
+ *     tags: [CBS]
+ *     responses:
+ *       200: { description: Customer details }
+ */
+router.post("/customer/details", managerAuthenticateMiddleware, cbsController.getCustomerDetails);
 
 /**
  * @swagger

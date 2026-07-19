@@ -6,6 +6,7 @@ node_modules
 
 # Media
 uploads/recordings/*.mp4
+uploads/forms/*.pdf
 .env
 .env.dev
 .env.local

@@ -131,6 +131,31 @@ const handleSocketConnection = async (socket, io) => {
           }
         }
 
+        // Always broadcast the cancel, even if a local entry was found above —
+        // a local entry can be a stale clone (from ensureLocalActiveCall being
+        // triggered by an earlier CBS/HTTP request landing on this pod) while
+        // the REAL grace timer runs on a different pod. Gating this behind
+        // "nothing found locally" let that real timer survive an apparently
+        // successful reconnect and force-end the call 15s later regardless.
+        if (io) {
+          const activeCall = await ensureLocalActiveCall(io, normalizedPhone);
+          if (activeCall) {
+            activeCall.customerSocketId = socketId;
+            try {
+              const results = await io.serverSideEmitWithAck("cancel-disconnect-timer-local", normalizedPhone);
+              if (results.some(Boolean)) {
+                console.log(`✅ Customer ${normalizedPhone} reconnected cross-pod within grace period — call continues`);
+                const managerSocketId = activeCall.managerSocketId;
+                if (managerSocketId) {
+                  io.to(managerSocketId).emit("customer:reconnected", { message: "Customer reconnected" });
+                }
+              }
+            } catch (error) {
+              console.error(`⚠️ Cross-pod customer-reconnect sync failed for ${normalizedPhone}:`, error.message);
+            }
+          }
+        }
+
         // Customer may instead (or additionally) be waiting in the BullMQ
         // queue rather than in an active call — that job's stored socketId
         // goes stale on every backend restart since Socket.IO state is
@@ -165,6 +190,27 @@ const handleSocketConnection = async (socket, io) => {
           }
         });
 
+        // Always broadcast, even if a local entry was found above — a local
+        // entry can be a stale clone (from ensureLocalActiveCall being
+        // triggered by an earlier CBS/HTTP request landing on this pod) while
+        // the REAL grace timer runs on a different pod. Gating this behind
+        // "nothing found locally" let that real timer survive an apparently
+        // successful reconnect and force-end the call 15s later regardless.
+        if (io) {
+          try {
+            const results = await io.serverSideEmitWithAck("manager-reconnect-local", { email, newSocketId: socketId });
+            const custPhone = results.find(Boolean);
+            if (custPhone) {
+              console.log(`🔁 Manager ${email} reconnected on a different pod — resumed active call with ${custPhone} cross-pod`);
+              socket.user.customerPhone = custPhone;
+              hasActiveCall = true;
+              await ensureLocalActiveCall(io, normalizePhone(custPhone));
+            }
+          } catch (error) {
+            console.error(`⚠️ Cross-pod manager-reconnect sync failed for ${email}:`, error.message);
+          }
+        }
+
         // If no active call, reset status to online (Redis may still have "busy" from a previous call)
         if (!hasActiveCall) {
           updateUserStatus(email, "manager", AGENT_STATUS.ONLINE);
@@ -183,6 +229,25 @@ const handleSocketConnection = async (socket, io) => {
       const { verificationInfo } = data || {};
       console.log(`🔄 Customer ${phone} initiating call - checking customer registration (optional)`);
       console.log(`📋 Verification info:`, verificationInfo);
+
+      // A page reload/reconnect while a manager already picked this call up
+      // re-fires call:initiate on mount. The connection handler above already
+      // re-attached this new socket to the existing activeCustomerCalls entry
+      // (customerSocketId refresh, grace-timer cancel) — clearing it here
+      // would destroy the in-progress call and bounce the manager back to the
+      // queue screen. Only wipe stale entries with no manager assigned yet.
+      const existingCall = activeCustomerCalls[phone];
+      if (existingCall && existingCall.currentManagerEmail) {
+        console.log(`♻️ Customer ${phone} re-initiated call while already in-progress with ${existingCall.currentManagerEmail} — resuming instead of clearing`);
+        socket.emit("call:accepted", {
+          managerId: existingCall.currentManagerEmail,
+          managerName: existingCall.managerName || null,
+          callRoom: existingCall.callRoom,
+          referenceNumber: existingCall.referenceNumber || null,
+          routingTime: 0,
+        });
+        return;
+      }
 
       await clearActiveCustomerCall(phone, io);
 
@@ -903,8 +968,9 @@ const handleSocketConnection = async (socket, io) => {
       socket.user.customerPhone = normalizedPhone;
 
       // Create call log entry
+      let createdCallLog = null;
       try {
-        const callLog = await callLogService.createCallLog({
+        createdCallLog = await callLogService.createCallLog({
           callRoom: callRoom,
           customerPhone: customerPhone,
           customerName: queueEntry.customerName || null,
@@ -914,14 +980,20 @@ const handleSocketConnection = async (socket, io) => {
           queueWaitTime: queueEntry.waitTimeSeconds || 0,
           metadata: { pickedFromQueue: true }
         });
-        activeCustomerCalls[customerPhone].callLogId = callLog?.id;
-        activeCustomerCalls[customerPhone].referenceNumber = callLog?.referenceNumber;
+        // The customer can race this (e.g. queue:leave from a tab refresh)
+        // while the two awaits above are in flight, deleting this entry via
+        // clearActiveCustomerCall before we get here — guard every access
+        // instead of crashing the whole pod on an uncaught TypeError.
+        if (activeCustomerCalls[normalizedPhone]) {
+          activeCustomerCalls[normalizedPhone].callLogId = createdCallLog?.id;
+          activeCustomerCalls[normalizedPhone].referenceNumber = createdCallLog?.referenceNumber;
+        }
         await callLogService.acceptCall(callRoom);
 
         // Auto-start recording after delay (wait for participants to join)
         setTimeout(async () => {
           try {
-            if (!activeCustomerCalls[customerPhone]) {
+            if (!activeCustomerCalls[normalizedPhone]) {
               console.log("⚠️ Call ended before recording could start");
               return;
             }
@@ -936,13 +1008,15 @@ const handleSocketConnection = async (socket, io) => {
                   {
                     customerPhone: customerPhone,
                     managerEmail: email,
-                    callLogId: callLog?.id,
+                    callLogId: createdCallLog?.id,
                     recordedBy: 'auto'
                   }
                 );
                 if (recordingResult.success) {
-                  activeCustomerCalls[customerPhone].egressId = recordingResult.egressId;
-                  activeCustomerCalls[customerPhone].recordingId = recordingResult.recordingId;
+                  if (activeCustomerCalls[normalizedPhone]) {
+                    activeCustomerCalls[normalizedPhone].egressId = recordingResult.egressId;
+                    activeCustomerCalls[normalizedPhone].recordingId = recordingResult.recordingId;
+                  }
                   console.log(`🎬 Auto-recording started for call ${callRoom}`);
                   return;
                 }
@@ -963,6 +1037,21 @@ const handleSocketConnection = async (socket, io) => {
         console.error("Error creating call log:", err);
       }
 
+      if (!activeCustomerCalls[normalizedPhone]) {
+        console.log(`⚠️ Customer ${normalizedPhone} left before call routing completed — aborting call:accepted`);
+        // updateUserStatus(email, role, AGENT_STATUS.BUSY) above already ran
+        // before this point — without reverting it here, the manager gets
+        // stuck permanently "busy" (unable to pick any future call) even
+        // though no call is actually active.
+        updateUserStatus(email, role, previousStatus);
+        socket.emit("call:error", { message: "Customer is no longer available" });
+        await broadcastQueueAndStatus(io);
+        io.emit("manager:list", findAvailableManagers());
+        return;
+      }
+
+      const referenceNumber = activeCustomerCalls[normalizedPhone].referenceNumber || null;
+
       // Notify manager that call is starting (sets callStatus='in-call' in manager panel)
       socket.emit("call:accepted", {
         customerId: customerPhone,
@@ -970,7 +1059,7 @@ const handleSocketConnection = async (socket, io) => {
         customerName: queueEntry.customerName || null,
         customerEmail: queueEntry.customerEmail || null,
         callRoom: callRoom,
-        referenceNumber: activeCustomerCalls[customerPhone].referenceNumber || null,
+        referenceNumber,
         routingTime: queueEntry.waitTimeSeconds * 1000 || 0,
         verificationInfo: queueEntry.verificationInfo || null, // { method: 'phone'|'email', phoneOrEmail: '...', isInternal: true|false }
       });
@@ -981,7 +1070,7 @@ const handleSocketConnection = async (socket, io) => {
         managerName: name || null,
         ...(socket.user.image && { managerImage: socket.user.image }),
         callRoom: callRoom,
-        referenceNumber: activeCustomerCalls[customerPhone].referenceNumber || null,
+        referenceNumber,
         routingTime: queueEntry.waitTimeSeconds * 1000 || 0
       });
 
@@ -4927,6 +5016,32 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
   console.log(
     `✅ Successfully cleared call state for customer ${normalizedPhone}`
   );
+
+  // This only deleted the LOCAL copy above. ensureLocalActiveCall clones this
+  // entry onto whichever pod happens to handle a CBS/HTTP request mid-call
+  // (no session affinity there either) — left uncleaned, that clone survives
+  // this call ending, still tagged with this manager's email. A manager who
+  // later reconnects (or starts a brand-new call) and lands on that pod gets
+  // matched against the dead entry by the reconnect-sync logic and is
+  // silently attached to the wrong, long-over call. Broadcasting the same
+  // deletion to every pod closes that gap.
+  if (io) {
+    try {
+      io.serverSideEmit("clear-active-call-local", normalizedPhone);
+    } catch (error) {
+      console.error(`⚠️ Cross-pod active-call cleanup broadcast failed for ${normalizedPhone}:`, error.message);
+    }
+  }
+};
+
+// Local half of the cross-pod cleanup broadcast above — deletes this pod's
+// copy of a customer's active call (canonical or cloned) if it has one.
+const clearActiveCustomerCallLocal = (normalizedPhone) => {
+  if (activeCustomerCalls[normalizedPhone]) {
+    delete activeCustomerCalls[normalizedPhone];
+    delete rejectedManagers[normalizedPhone];
+    console.log(`🧹 Cleared cross-pod active-call copy for customer ${normalizedPhone}`);
+  }
 };
 
 // Helper function to broadcast queue and manager status updates
@@ -5244,11 +5359,15 @@ const getActiveCallsDataCluster = async (io) => {
 // CallLog.customerAccountNumber is never populated by the real call flow, so
 // the in-memory activeCustomerCalls map (which does track both) is the only
 // reliable source of truth for account-number-based endpoints.
-const isManagerAssignedToCustomer = (managerEmail, { phone, accountNumber } = {}) => {
+// `io` is optional but required to survive the case where activeCustomerCalls
+// for this phone lives on a different pod than the one serving this HTTP
+// request (no cross-user pod affinity in k8s) — see ensureLocalActiveCall.
+const isManagerAssignedToCustomer = async (managerEmail, { phone, accountNumber } = {}, io) => {
   if (!managerEmail) return false;
 
   if (phone) {
-    const call = activeCustomerCalls[normalizePhone(phone)];
+    const normalizedPhone = normalizePhone(phone);
+    const call = activeCustomerCalls[normalizedPhone] || (await ensureLocalActiveCall(io, normalizedPhone));
     return !!call && call.currentManagerEmail === managerEmail;
   }
 
@@ -5308,6 +5427,48 @@ const ensureLocalActiveCall = async (io, normalizedPhone) => {
   }
 };
 
+// Cancels a locally-held disconnect grace-timer, if this pod has one under
+// the given key (customer key = normalizedPhone, manager key =
+// `mgr:${email}:${normalizedPhone}`). Used by the cross-pod reconnect sync
+// below — a reconnecting socket can land on a different pod than the one
+// whose timer is actually counting down (no sticky session in the k8s
+// Service), so every pod needs a way to cancel a timer it didn't set itself.
+const cancelDisconnectTimerLocal = (timerKey) => {
+  if (disconnectTimers[timerKey]) {
+    clearTimeout(disconnectTimers[timerKey]);
+    delete disconnectTimers[timerKey];
+    return true;
+  }
+  return false;
+};
+
+// Local half of the cross-pod manager-reconnect sync: runs on every pod in
+// response to a serverSideEmitWithAck broadcast, so whichever pod actually
+// holds this manager's activeCustomerCalls entry (and its grace timer) can
+// update the socketId and cancel its own timer — even though the manager's
+// new socket connection landed on a different pod.
+const handleManagerReconnectLocal = (io, email, newSocketId) => {
+  let custPhone = null;
+  Object.keys(activeCustomerCalls).forEach((phone) => {
+    const call = activeCustomerCalls[phone];
+    if (call.currentManagerEmail === email) {
+      custPhone = phone;
+      call.managerSocketId = newSocketId;
+      const timerKey = `mgr:${email}:${normalizePhone(phone)}`;
+      if (disconnectTimers[timerKey]) {
+        clearTimeout(disconnectTimers[timerKey]);
+        delete disconnectTimers[timerKey];
+        console.log(`✅ Manager ${email} reconnected cross-pod within grace period — call continues (customer ${phone})`);
+        const custSocketId = call.customerSocketId;
+        if (custSocketId) {
+          io.to(custSocketId).emit("manager:reconnected", { message: "Manager reconnected" });
+        }
+      }
+    }
+  });
+  return custPhone;
+};
+
 module.exports = {
   handleSocketConnection,
   getActiveCallsData,
@@ -5316,4 +5477,7 @@ module.exports = {
   isManagerAssignedToCustomer,
   getActiveCallLocalRaw,
   ensureLocalActiveCall,
+  cancelDisconnectTimerLocal,
+  handleManagerReconnectLocal,
+  clearActiveCustomerCallLocal,
 };

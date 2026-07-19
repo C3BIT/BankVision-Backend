@@ -12,7 +12,9 @@ const router = Router();
 // Authorization header or ?token= query param, since <img>/window.open
 // requests can't attach headers (same pattern as recording.route.js).
 const staffAuthMiddleware = (req, res, next) => {
-  const token = getTokenFromRequest(req);
+  // Manager and admin sessions use distinct cookie names (see cookieHelper.js) —
+  // this route accepts either role, so both are checked as fallbacks.
+  const token = getTokenFromRequest(req, 'manager_auth_token') || getTokenFromRequest(req, 'admin_auth_token');
   if (!token) {
     return res.status(401).json({ success: false, message: "No token provided" });
   }

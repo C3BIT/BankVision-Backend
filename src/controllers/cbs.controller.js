@@ -1,4 +1,5 @@
 const cbsService = require("../services/cbsService");
+const { getCustomerInfoByAccountNumber } = require("../services/customerService");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
 const { isManagerAssignedToCustomer } = require("../services/socketHandler");
@@ -9,9 +10,10 @@ const { getClientIP } = require("../services/loggingService");
 // they have a live call with that customer — checked against the real-time
 // activeCustomerCalls assignment (CallLog.customerAccountNumber is not
 // reliably populated by the real call flow, so it can't be used here).
-const enforceCallOwnership = (req, res, identifiers) => {
+const enforceCallOwnership = async (req, res, identifiers) => {
   const managerEmail = req.user?.email;
-  const granted = isManagerAssignedToCustomer(managerEmail, identifiers);
+  const io = req.app.get("io");
+  const granted = await isManagerAssignedToCustomer(managerEmail, identifiers, io);
 
   console.log(
     `[CBS ACCESS] ${granted ? "GRANTED" : "DENIED"} manager=${managerEmail} ` +
@@ -46,7 +48,7 @@ const lookupCustomer = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { phone })) return;
+    if (!(await enforceCallOwnership(req, res, { phone }))) return;
 
     const result = await cbsService.lookupCustomerByPhone(phone);
     res.success(result, result.found ? "Customer found" : "Customer not found");
@@ -84,7 +86,7 @@ const requestOtp = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.requestOtp(accountNumber, type, destination, newValue);
     res.success(result, "OTP request processed");
@@ -137,7 +139,7 @@ const updatePhone = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.updatePhone(accountNumber, requestId, otp, newPhone);
     res.success(result, result.success ? "Phone updated" : "Update failed");
@@ -161,7 +163,7 @@ const updateEmail = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.updateEmail(accountNumber, requestId, otp, newEmail);
     res.success(result, result.success ? "Email updated" : "Update failed");
@@ -185,7 +187,7 @@ const updateAddress = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.updateAddress(accountNumber, requestId, otp, newAddress, addressType);
     res.success(result, result.success ? "Address updated" : "Update failed");
@@ -209,7 +211,7 @@ const getAccountStatus = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.getAccountStatus(accountNumber);
     res.success(result, "Account status retrieved");
@@ -233,7 +235,7 @@ const activateAccount = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { accountNumber })) return;
+    if (!(await enforceCallOwnership(req, res, { accountNumber }))) return;
 
     const result = await cbsService.activateAccount(accountNumber, requestId, otp, nidNumber);
     res.success(result, result.success ? "Account activated" : "Activation failed");
@@ -287,7 +289,7 @@ const getAccounts = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { phone })) return;
+    if (!(await enforceCallOwnership(req, res, { phone }))) return;
 
     const accounts = await cbsService.getAccountsWithDetails(phone);
     res.success({ accounts }, "Accounts retrieved successfully");
@@ -311,7 +313,7 @@ const getCards = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { phone })) return;
+    if (!(await enforceCallOwnership(req, res, { phone }))) return;
 
     const cards = await cbsService.getCardsByPhone(phone);
     res.success({ cards }, "Cards retrieved successfully");
@@ -335,10 +337,45 @@ const getLoans = async (req, res) => {
       });
     }
 
-    if (!enforceCallOwnership(req, res, { phone })) return;
+    if (!(await enforceCallOwnership(req, res, { phone }))) return;
 
     const loans = await cbsService.getLoansByPhone(phone);
     res.success({ loans }, "Loans retrieved successfully");
+  } catch (error) {
+    errorResponseHandler(error, req, res);
+  }
+};
+
+/**
+ * Get full customer/account details (incl. address, cards, loans) for the
+ * manager side of an active call. Manager-panel equivalent of
+ * customer.controller.js's handleGetCustomerInfoByAccountNb, which requires
+ * the customer's own short-lived OTP-session token — unusable here since the
+ * manager's browser is a different device and never holds that cookie.
+ * POST /api/cbs/customer/details
+ */
+const getCustomerDetails = async (req, res) => {
+  try {
+    const { accountNumber, phone } = req.body;
+
+    if (!accountNumber) {
+      throw Object.assign(new Error("Account number is required"), {
+        status: statusCodes.BAD_REQUEST,
+        error: { code: 40002 }
+      });
+    }
+
+    if (!(await enforceCallOwnership(req, res, { phone }))) return;
+
+    const customer = await getCustomerInfoByAccountNumber(accountNumber, phone);
+    if (!customer) {
+      throw Object.assign(new Error("Customer not found"), {
+        status: statusCodes.NOT_FOUND,
+        error: { code: 40401 }
+      });
+    }
+
+    res.success(customer, "Customer details fetched successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
@@ -349,6 +386,7 @@ module.exports = {
   getAccounts,
   getCards,
   getLoans,
+  getCustomerDetails,
   requestOtp,
   verifyOtp,
   updatePhone,

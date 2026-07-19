@@ -47,6 +47,10 @@ const createCustomerController = async (req, res) => {
   }
 };
 
+// Used both to look up the verified caller's own accounts (Home.jsx post-call-start)
+// and to duplicate-check a DIFFERENT candidate phone during a change-request flow
+// (ChangeContactModal.jsx) — so this intentionally only requires a valid customer
+// session, not that `phone` equals the session's own verified number.
 const getAccountsListByPhoneController = async (req, res) => {
   try {
     const { phone } = req.body;
@@ -166,6 +170,16 @@ const handleGetCustomerInfoByAccountNb = async (req, res) => {
       throw Object.assign(new Error(), {
         status: statusCodes.NOT_FOUND,
         error: { code: 40401 },
+      });
+    }
+    // This returns full CBS account data (cards, loans, address) — verify the
+    // account actually belongs to the OTP-verified caller so a valid session
+    // can't be reused to pull an arbitrary account by guessing its number.
+    const normalize = (n) => (n && !n.startsWith('0') ? `0${n}` : n);
+    if (normalize(customer.mobileNumber) !== normalize(req.customerPhone)) {
+      throw Object.assign(new Error(), {
+        status: statusCodes.UNAUTHORIZED,
+        error: { code: 40118 },
       });
     }
     res.success(customer, "Customer Deatils Fetch Successfully.");

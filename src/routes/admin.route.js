@@ -3,6 +3,7 @@ const {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
+  getCurrentAdmin,
   getManagers,
   getDashboardStats,
   resetManagerPassword,
@@ -31,7 +32,6 @@ const {
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
-const { requireCaptcha } = require('../middlewares/captchaMiddleware');
 
 const router = new Router();
 
@@ -52,7 +52,7 @@ const router = new Router();
  *     responses:
  *       200: { description: Logged in }
  */
-router.post('/login', requireCaptcha, authRateLimiter, loginAdmin);
+router.post('/login', authRateLimiter, loginAdmin);
 
 // Protected routes (admin)
 /**
@@ -65,6 +65,17 @@ router.post('/login', requireCaptcha, authRateLimiter, loginAdmin);
  *       200: { description: Logged out }
  */
 router.post('/logout', adminAuthenticateMiddleware, logoutAdmin);
+/**
+ * @swagger
+ * /admin/me:
+ *   get:
+ *     summary: Get the currently authenticated admin (resolved from auth cookie/token)
+ *     tags: [Admin]
+ *     responses:
+ *       200: { description: Current admin profile }
+ *       401: { description: Not authenticated }
+ */
+router.get('/me', adminAuthenticateMiddleware, getCurrentAdmin);
 /**
  * @swagger
  * /admin/register:

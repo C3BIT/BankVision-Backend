@@ -233,8 +233,12 @@ const loginManagerController = async (req, res) => {
       ipAddress: req.ip || req.connection?.remoteAddress
     });
 
-    // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript)
-    setAuthCookie(res, token, 8 * 60 * 60 * 1000); // 8 hours
+    // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript).
+    // Distinct cookie name from admin sessions ('admin_auth_token') so a staff
+    // member with both a manager and an admin session open in the same browser
+    // (shared COOKIE_DOMAIN across subdomains) doesn't have one overwrite the
+    // other — previously both used the default 'auth_token' name and collided.
+    setAuthCookie(res, token, 8 * 60 * 60 * 1000, 'manager_auth_token'); // 8 hours
 
     const responseData = {
       manager: {
@@ -256,6 +260,33 @@ const loginManagerController = async (req, res) => {
     }
 
     res.success(responseData, "Login successful!");
+  } catch (error) {
+    errorResponseHandler(error, req, res);
+  }
+};
+
+// Return the currently authenticated manager, resolved from the auth cookie/token
+// via managerAuthenticateMiddleware. Lets the frontend bootstrap session state on
+// page load without persisting the manager profile in localStorage.
+const getCurrentManagerController = async (req, res) => {
+  try {
+    const manager = await findManagerByEmail(req.user.email);
+
+    if (!manager || manager.isActive === false) {
+      throw Object.assign(new Error("Not authenticated"), {
+        status: statusCodes.UNAUTHORIZED,
+        error: { code: 40103 },
+      });
+    }
+
+    res.success({
+      manager: {
+        id: manager.id,
+        name: manager.name,
+        email: manager.email,
+        profileImage: manager.profileImage
+      }
+    }, "Current manager fetched");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
@@ -380,7 +411,7 @@ const logoutManagerController = async (req, res) => {
       logLogout(req, req.user, 'manager');
       await invalidateSession(managerId);
     }
-    clearAuthCookie(res);
+    clearAuthCookie(res, 'manager_auth_token');
 
     res.success({}, "Logged out successfully");
   } catch (error) {
@@ -391,6 +422,7 @@ const logoutManagerController = async (req, res) => {
 module.exports = {
   registerManagerController,
   loginManagerController,
+  getCurrentManagerController,
   forgotPasswordController,
   resetPasswordController,
   logoutManagerController

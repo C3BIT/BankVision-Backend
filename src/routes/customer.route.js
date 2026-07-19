@@ -10,6 +10,7 @@ const {
   checkVerificationStatusController,
   checkDuplicateEmailController,
 } = require("../controllers/customer.controller");
+const { customerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 
 const router = Router();
 
@@ -39,7 +40,7 @@ router.post("/create", createCustomerController);
  *     responses:
  *       200: { description: Accounts found }
  */
-router.post("/find-phone", getAccountsListByPhoneController);
+router.post("/find-phone", customerAuthenticateMiddleware, getAccountsListByPhoneController);
 /**
  * @swagger
  * /customer/find-email:
@@ -49,7 +50,7 @@ router.post("/find-phone", getAccountsListByPhoneController);
  *     responses:
  *       200: { description: Duplicate-check result }
  */
-router.post("/find-email", checkDuplicateEmailController);
+router.post("/find-email", customerAuthenticateMiddleware, checkDuplicateEmailController);
 /**
  * @swagger
  * /customer/update-phone:
@@ -59,7 +60,7 @@ router.post("/find-email", checkDuplicateEmailController);
  *     responses:
  *       200: { description: Phone updated }
  */
-router.post("/update-phone", handleUpdatePhoneByAccountNumber);
+router.post("/update-phone", customerAuthenticateMiddleware, handleUpdatePhoneByAccountNumber);
 /**
  * @swagger
  * /customer/update-email:
@@ -69,7 +70,7 @@ router.post("/update-phone", handleUpdatePhoneByAccountNumber);
  *     responses:
  *       200: { description: Email updated }
  */
-router.post("/update-email", handleUpdateEmailByAccountNumber);
+router.post("/update-email", customerAuthenticateMiddleware, handleUpdateEmailByAccountNumber);
 /**
  * @swagger
  * /customer/update-address:
@@ -79,7 +80,7 @@ router.post("/update-email", handleUpdateEmailByAccountNumber);
  *     responses:
  *       200: { description: Address updated }
  */
-router.post("/update-address", handleUpdateAddressByAccountNumber);
+router.post("/update-address", customerAuthenticateMiddleware, handleUpdateAddressByAccountNumber);
 /**
  * @swagger
  * /customer/details:
@@ -89,7 +90,7 @@ router.post("/update-address", handleUpdateAddressByAccountNumber);
  *     responses:
  *       200: { description: Customer details }
  */
-router.post("/details", handleGetCustomerInfoByAccountNb);
+router.post("/details", customerAuthenticateMiddleware, handleGetCustomerInfoByAccountNb);
 /**
  * @swagger
  * /customer/profile-image:
@@ -99,7 +100,7 @@ router.post("/details", handleGetCustomerInfoByAccountNb);
  *     responses:
  *       200: { description: Profile image reference }
  */
-router.post("/profile-image", getCustomerImageByPhoneController);
+router.post("/profile-image", customerAuthenticateMiddleware, getCustomerImageByPhoneController);
 /**
  * @swagger
  * /customer/check-verification-status:
@@ -109,5 +110,5 @@ router.post("/profile-image", getCustomerImageByPhoneController);
  *     responses:
  *       200: { description: Verification status }
  */
-router.post("/check-verification-status", checkVerificationStatusController);
+router.post("/check-verification-status", customerAuthenticateMiddleware, checkVerificationStatusController);
 module.exports = router;

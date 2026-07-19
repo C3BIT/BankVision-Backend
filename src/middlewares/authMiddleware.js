@@ -10,8 +10,12 @@ const isTokenExpired = (expirationTime) =>
 
 const managerAuthenticateMiddleware = async (req, res, next) => {
   try {
-    // Get token from cookie or Authorization header (backward compatible)
-    const token = getTokenFromRequest(req);
+    // Get token from cookie or Authorization header (backward compatible).
+    // 'manager_auth_token' is a distinct cookie name from admin sessions'
+    // 'admin_auth_token' — both used to default to the shared 'auth_token'
+    // name, so an admin login in the same browser would silently overwrite a
+    // manager's cookie (shared COOKIE_DOMAIN), 401ing every manager request.
+    const token = getTokenFromRequest(req, 'manager_auth_token');
     if (!token) {
       throw Object.assign(new Error(), {
         status: statusCodes.UNAUTHORIZED,
@@ -74,4 +78,61 @@ const managerAuthenticateMiddleware = async (req, res, next) => {
 };
 
 
-module.exports = {managerAuthenticateMiddleware}
+// Verifies the short-lived customer session issued after OTP verification
+// (see otp.controller.js:verifyPhoneOtpController). No Redis-backed session
+// record is enforced here — unlike staff logins there's no "logout" action in
+// the customer flow to invalidate early, so the short JWT expiry alone is the
+// revocation mechanism. req.customerPhone is set from the verified token, not
+// from any client-supplied value, so downstream handlers can trust it as
+// proof of OTP ownership.
+const customerAuthenticateMiddleware = async (req, res, next) => {
+  try {
+    const token = getTokenFromRequest(req, 'customer_auth_token');
+    if (!token) {
+      throw Object.assign(new Error(), {
+        status: statusCodes.UNAUTHORIZED,
+        error: { code: 40116 },
+      });
+    }
+
+    let decoded;
+    try {
+      decoded = jsonwebtoken.verify(token, jwtSecret, { algorithms: ['HS256'] });
+
+      if (isTokenExpired(decoded.exp)) {
+        throw Object.assign(new Error(), {
+          status: statusCodes.UNAUTHORIZED,
+          error: { code: 40110 },
+        });
+      }
+
+      if (decoded.role !== "customer" || !decoded.phone) {
+        throw Object.assign(new Error(), {
+          status: statusCodes.UNAUTHORIZED,
+          error: { code: 40117 },
+        });
+      }
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        throw Object.assign(new Error(), {
+          status: statusCodes.UNAUTHORIZED,
+          error: { code: 40110 },
+        });
+      } else if (error.status) {
+        throw error;
+      } else {
+        throw Object.assign(new Error(), {
+          status: statusCodes.UNAUTHORIZED,
+          error: { code: 40111 },
+        });
+      }
+    }
+
+    req.customerPhone = decoded.phone;
+    return next();
+  } catch (err) {
+    errorResponseHandler(err, req, res);
+  }
+};
+
+module.exports = { managerAuthenticateMiddleware, customerAuthenticateMiddleware }

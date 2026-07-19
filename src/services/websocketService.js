@@ -1,7 +1,7 @@
 const socketIo = require("socket.io");
 const { createAdapter } = require("@socket.io/redis-adapter");
 const Redis = require("ioredis");
-const { handleSocketConnection, getActiveCallsData, getActiveCallLocalRaw } = require("./socketHandler");
+const { handleSocketConnection, getActiveCallsData, getActiveCallLocalRaw, cancelDisconnectTimerLocal, handleManagerReconnectLocal, clearActiveCustomerCallLocal } = require("./socketHandler");
 const { socketAuthMiddleware } = require("../middlewares/socketAuth");
 
 const initializeWebSocket = (server) => {
@@ -43,6 +43,28 @@ const initializeWebSocket = (server) => {
   // for a single customer's locally-held active call, if this pod has it.
   io.on("get-active-call-local", (normalizedPhone, callback) => {
     callback(getActiveCallLocalRaw(normalizedPhone));
+  });
+
+  // Answers cross-pod requests (see reconnect handling in socketHandler.js)
+  // to cancel a disconnect grace-timer this pod is holding, triggered by a
+  // reconnect that landed on a different pod.
+  io.on("cancel-disconnect-timer-local", (timerKey, callback) => {
+    callback(cancelDisconnectTimerLocal(timerKey));
+  });
+
+  // Answers cross-pod requests for a reconnecting manager whose active call
+  // (and grace timer) live on a different pod than the one that received
+  // their new socket connection.
+  io.on("manager-reconnect-local", ({ email, newSocketId }, callback) => {
+    callback(handleManagerReconnectLocal(io, email, newSocketId));
+  });
+
+  // A call teardown (clearActiveCustomerCall) only runs fully on the pod that
+  // handled it — this cleans up any cross-pod clone (see ensureLocalActiveCall)
+  // left behind on other pods so a stale entry can't be matched against a
+  // manager's later reconnect or new call.
+  io.on("clear-active-call-local", (normalizedPhone) => {
+    clearActiveCustomerCallLocal(normalizedPhone);
   });
 
   io.on("connection", (socket) => {

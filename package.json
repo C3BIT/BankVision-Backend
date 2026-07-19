@@ -23,6 +23,7 @@
     "bcryptjs": "3.0.3",
     "body-parser": "2.2.2",
     "bullmq": "5.67.3",
+    "cookie": "0.7.2",
     "cookie-parser": "1.4.7",
     "cors": "2.8.6",
     "crypto": "1.0.1",

@@ -13,8 +13,10 @@ const enforceSession = async (decoded, token) => {
 
 const adminAuthenticateMiddleware = async (req, res, next) => {
   try {
-    // Get token from cookie or Authorization header (backward compatible)
-    const token = getTokenFromRequest(req);
+    // Get token from cookie or Authorization header (backward compatible).
+    // 'admin_auth_token' is distinct from manager sessions' 'manager_auth_token'
+    // to avoid a shared-COOKIE_DOMAIN collision (see authMiddleware.js).
+    const token = getTokenFromRequest(req, 'admin_auth_token');
 
     if (!token) {
       return res.status(401).json({
@@ -61,7 +63,7 @@ const adminAuthenticateMiddleware = async (req, res, next) => {
 const supervisorAuthMiddleware = async (req, res, next) => {
   try {
     // Get token from cookie or Authorization header (backward compatible)
-    const token = getTokenFromRequest(req);
+    const token = getTokenFromRequest(req, 'admin_auth_token');
 
     if (!token) {
       return res.status(401).json({
@@ -114,7 +116,7 @@ const supervisorAuthMiddleware = async (req, res, next) => {
 
 const superAdminAuthMiddleware = async (req, res, next) => {
   try {
-    const token = getTokenFromRequest(req);
+    const token = getTokenFromRequest(req, 'admin_auth_token');
 
     if (!token) {
       return res.status(401).json({

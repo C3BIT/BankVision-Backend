@@ -2,6 +2,7 @@ const { Router } = require("express");
 const {
   registerManagerController,
   loginManagerController,
+  getCurrentManagerController,
   forgotPasswordController,
   resetPasswordController,
   logoutManagerController
@@ -12,7 +13,6 @@ const {
   passwordResetRateLimiter,
   bruteForceProtection
 } = require("../middlewares/securityMiddleware");
-const { requireCaptcha } = require("../middlewares/captchaMiddleware");
 
 const router = new Router();
 
@@ -57,7 +57,19 @@ router.post("/registration", authRateLimiter, registerManagerController);
  *       401: { description: Invalid credentials }
  *       423: { description: Account locked (brute-force protection) }
  */
-router.post("/login", requireCaptcha, authRateLimiter, bruteForceProtection(), loginManagerController);
+router.post("/login", authRateLimiter, bruteForceProtection(), loginManagerController);
+
+/**
+ * @swagger
+ * /manager/me:
+ *   get:
+ *     summary: Get the currently authenticated manager (resolved from auth cookie/token)
+ *     tags: [Manager]
+ *     responses:
+ *       200: { description: Current manager profile }
+ *       401: { description: Not authenticated }
+ */
+router.get("/me", managerAuthenticateMiddleware, getCurrentManagerController);
 
 /**
  * @swagger
@@ -69,7 +81,7 @@ router.post("/login", requireCaptcha, authRateLimiter, bruteForceProtection(), l
  *     responses:
  *       200: { description: Reset email sent if account exists }
  */
-router.post("/forgot-password", requireCaptcha, passwordResetRateLimiter, forgotPasswordController);
+router.post("/forgot-password", passwordResetRateLimiter, forgotPasswordController);
 
 /**
  * @swagger

@@ -1,6 +1,28 @@
 const { Queue, Worker, QueueEvents } = require('bullmq');
 const Redis = require('ioredis');
 
+// Mirrors socketHandler.js's normalizePhone — kept local (not shared/exported)
+// so this module has no dependency on socketHandler.js. Every comparison
+// against job.data.customerPhone below MUST go through this: socketHandler's
+// queue:pick-call handler normalizes the phone before calling into this
+// service, but jobs can be queued with a differently-formatted phone (e.g.
+// with country code) than the normalized value used to look them up later —
+// a raw string comparison then silently fails to find a job that visibly
+// exists in the queue list (which normalizes both sides), producing a false
+// "Customer not found in queue" and bouncing the manager back to the queue
+// screen mid-call-pick.
+const normalizePhone = (phone) => {
+  if (!phone) return null;
+  let cleaned = phone.toString().replace(/\D/g, '');
+  if (cleaned.startsWith('880') && cleaned.length > 10) {
+    cleaned = cleaned.substring(3);
+  }
+  if (cleaned.startsWith('1') && cleaned.length === 10) {
+    cleaned = '0' + cleaned;
+  }
+  return cleaned;
+};
+
 // Redis connection for BullMQ (connect to vbrm-redis container)
 const connection = new Redis({
   host: process.env.REDIS_HOST || 'vbrm-redis',
@@ -64,7 +86,7 @@ async function addCustomerToQueue(customerData) {
   try {
     // Check if customer already in queue
     const existingJobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
-    const alreadyQueued = existingJobs.find(job => job.data.customerPhone === customerPhone);
+    const alreadyQueued = existingJobs.find(job => normalizePhone(job.data.customerPhone) === normalizePhone(customerPhone));
 
     if (alreadyQueued) {
       const position = await getQueuePosition(customerPhone);
@@ -132,7 +154,7 @@ async function addCustomerToQueue(customerData) {
 async function removeCustomerFromQueue(customerPhone) {
   try {
     const jobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
-    const customerJob = jobs.find(job => job.data.customerPhone === customerPhone);
+    const customerJob = jobs.find(job => normalizePhone(job.data.customerPhone) === normalizePhone(customerPhone));
 
     if (customerJob) {
       await customerJob.remove();
@@ -162,7 +184,7 @@ async function removeCustomerFromQueue(customerPhone) {
 async function updateQueueEntrySocketId(customerPhone, newSocketId) {
   try {
     const jobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
-    const job = jobs.find(j => j.data.customerPhone === customerPhone);
+    const job = jobs.find(j => normalizePhone(j.data.customerPhone) === normalizePhone(customerPhone));
     if (!job) return false;
 
     await job.updateData({ ...job.data, socketId: newSocketId });
@@ -190,7 +212,7 @@ async function getQueuePosition(customerPhone) {
       return new Date(a.data.queuedAt) - new Date(b.data.queuedAt);
     });
 
-    const index = jobs.findIndex(job => job.data.customerPhone === customerPhone);
+    const index = jobs.findIndex(job => normalizePhone(job.data.customerPhone) === normalizePhone(customerPhone));
     return index === -1 ? null : index + 1;
   } catch (error) {
     console.error('❌ Failed to get queue position:', error);

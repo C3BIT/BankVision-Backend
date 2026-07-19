@@ -1,6 +1,14 @@
+const jwt = require("jsonwebtoken");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const OTP = require("../services/otpService");
 const { statusCodes } = require("../utils/statusCodes");
+const { jwtSecret } = require("../configs/variables");
+const { setAuthCookie } = require("../utils/cookieHelper");
+
+// Video-KYC sessions run a phone-verify -> call -> face-compare sequence that
+// should complete well inside this window; short-lived by design since there's
+// no logout step in the customer flow to revoke it early.
+const CUSTOMER_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 const sendOtpController = async (req, res) => {
   try {
     const { email, checkDuplicate } = req.body;
@@ -98,6 +106,12 @@ const verifyPhoneOtpController = async (req, res) => {
         error: { code: 40011 },
       });
     }
+
+    const token = jwt.sign({ phone, role: "customer" }, jwtSecret, {
+      expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
+    });
+    setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");
+
     res.success({ isVerified }, "Verification Successful.");
   } catch (error) {
     errorResponseHandler(error, req, res);

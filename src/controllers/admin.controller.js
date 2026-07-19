@@ -155,8 +155,12 @@ const loginAdmin = async (req, res) => {
       { expiresIn: '8h' }
     );
 
-    // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript)
-    setAuthCookie(res, token, 8 * 60 * 60 * 1000); // 8 hours
+    // Set token as httpOnly cookie (secure, cannot be accessed by JavaScript).
+    // Distinct cookie name from manager sessions ('manager_auth_token') so a
+    // staff member with both an admin and a manager session open in the same
+    // browser (shared COOKIE_DOMAIN across subdomains) doesn't have one
+    // overwrite the other — previously both used the default 'auth_token' name.
+    setAuthCookie(res, token, 8 * 60 * 60 * 1000, 'admin_auth_token'); // 8 hours
 
     // Track the session so logout/invalidateSession can actually revoke this token
     await createSession(admin.id, token, {
@@ -193,6 +197,35 @@ const loginAdmin = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Login failed'
+    });
+  }
+};
+
+// Return the currently authenticated admin, resolved from the auth cookie/token
+// via adminAuthenticateMiddleware. Lets the frontend bootstrap session state on
+// page load without persisting the admin profile in localStorage.
+const getCurrentAdmin = async (req, res) => {
+  try {
+    const admin = await Admin.findByPk(req.admin.id, {
+      attributes: ['id', 'name', 'email', 'role', 'profileImage']
+    });
+
+    if (!admin || !admin.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authenticated'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { admin }
+    });
+  } catch (error) {
+    console.error('Get Current Admin Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to load admin profile'
     });
   }
 };
@@ -1650,7 +1683,7 @@ const logoutAdmin = async (req, res) => {
     if (adminId) {
       await invalidateSession(adminId);
     }
-    clearAuthCookie(res);
+    clearAuthCookie(res, 'admin_auth_token');
 
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
@@ -1663,6 +1696,7 @@ module.exports = {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
+  getCurrentAdmin,
   getChangeRequests,
   getManagers,
   getDashboardStats,
