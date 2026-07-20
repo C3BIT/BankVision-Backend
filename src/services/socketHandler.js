@@ -913,6 +913,73 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
+    // Call Hold — manager mutes their own audio/video and the customer sees a
+    // hold screen instead of ending the call outright. Mirrors the
+    // recording:start/stop pattern above.
+    socket.on("call:hold", async (data) => {
+      if (role !== "manager") {
+        return socket.emit("call:error", { message: "Unauthorized" });
+      }
+      const customerPhone = socket.user.customerPhone;
+      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        return socket.emit("call:error", { message: "No active call" });
+      }
+      const call = activeCustomerCalls[customerPhone];
+      if (call.isOnHold) {
+        return socket.emit("call:error", { message: "Call is already on hold" });
+      }
+      try {
+        call.isOnHold = true;
+        call.holdStartTime = Date.now();
+        touchCall(customerPhone);
+        io.to(call.customerSocketId).emit("call:hold-started", {
+          message: "The bank representative has put this call on hold",
+          timestamp: call.holdStartTime,
+        });
+        socket.emit("call:hold-started", { timestamp: call.holdStartTime });
+        if (call.supervisors) {
+          call.supervisors.forEach((supervisor) => {
+            io.to(supervisor.socketId).emit("call:hold-started", { customerPhone, heldBy: email });
+          });
+        }
+        console.log(`⏸️ Call put on hold for ${customerPhone} by manager ${email}`);
+      } catch (error) {
+        console.error("❌ Error placing call on hold:", error);
+        socket.emit("call:error", { message: "Failed to place call on hold" });
+      }
+    });
+
+    socket.on("call:resume", async (data) => {
+      if (role !== "manager") {
+        return socket.emit("call:error", { message: "Unauthorized" });
+      }
+      const customerPhone = socket.user.customerPhone;
+      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        return socket.emit("call:error", { message: "No active call" });
+      }
+      const call = activeCustomerCalls[customerPhone];
+      if (!call.isOnHold) {
+        return socket.emit("call:error", { message: "Call is not on hold" });
+      }
+      try {
+        const duration = Math.floor((Date.now() - call.holdStartTime) / 1000);
+        call.isOnHold = false;
+        delete call.holdStartTime;
+        touchCall(customerPhone);
+        io.to(call.customerSocketId).emit("call:hold-ended", { duration, timestamp: Date.now() });
+        socket.emit("call:hold-ended", { duration });
+        if (call.supervisors) {
+          call.supervisors.forEach((supervisor) => {
+            io.to(supervisor.socketId).emit("call:hold-ended", { customerPhone, resumedBy: email, duration });
+          });
+        }
+        console.log(`▶️ Call resumed for ${customerPhone} by manager ${email}, held for ${duration}s`);
+      } catch (error) {
+        console.error("❌ Error resuming call:", error);
+        socket.emit("call:error", { message: "Failed to resume call" });
+      }
+    });
+
     socket.on("recording:status", async (data) => {
       if (isAdmin || role === 'supervisor') {
         const { egressId } = data;
