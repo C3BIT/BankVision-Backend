@@ -17,6 +17,7 @@ const signatureRoute = require("./signature.route");
 const webhookRoute = require("./webhook.route");
 const formsRoute = require("./forms.route");
 const captchaRoute = require("./captcha.route");
+const scheduledCallRoute = require("./scheduledCall.route");
 const router = express.Router();
 const defaultRoutes = [
   {
@@ -90,6 +91,10 @@ const defaultRoutes = [
   {
     path: "/forms",
     route: formsRoute,
+  },
+  {
+    path: "/scheduled-calls",
+    route: scheduledCallRoute,
   },
 ];
 

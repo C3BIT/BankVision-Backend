@@ -192,6 +192,12 @@ setInterval(() => {
   cleanupDisconnectedCustomers(io);
 }, 120000);
 
+// Check for due scheduled callbacks every minute
+const { checkDueScheduledCalls } = require('./services/scheduledCallService');
+setInterval(() => {
+  checkDueScheduledCalls(io);
+}, 60000);
+
 console.log('✅ BullMQ queue monitoring tasks started');
 
 // Make io accessible from Express app for controllers
