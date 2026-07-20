@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const recordingService = require('../services/recordingService');
 const { adminAuthenticateMiddleware } = require('../middlewares/adminAuthMiddleware');
-const { Recording } = require('../models');
+const { Recording, CallLog } = require('../models');
 
 /**
  * @swagger
@@ -183,6 +183,7 @@ router.get('/list', adminAuthenticateMiddleware, async (req, res) => {
 
     const { count, rows } = await Recording.findAndCountAll({
       where,
+      include: [{ model: CallLog, as: 'callLog', attributes: ['referenceNumber'] }],
       order: [['startTime', 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -258,7 +259,9 @@ router.post('/sync', adminAuthenticateMiddleware, async (req, res) => {
 router.get('/:id', adminAuthenticateMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const recording = await Recording.findByPk(id);
+    const recording = await Recording.findByPk(id, {
+      include: [{ model: CallLog, as: 'callLog', attributes: ['referenceNumber'] }]
+    });
 
     if (!recording) {
       return res.status(404).json({
