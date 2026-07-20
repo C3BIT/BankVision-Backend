@@ -57,9 +57,7 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
   const [cards, loans, photo, signature] = await Promise.all([
     lookupPhone ? cbsService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
     lookupPhone ? cbsService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
-    // getCustomerPhoto looks up CBS's Photos array by CIF (CustomerNo), not
-    // account number — passing the account number here always returns null.
-    cbsService.getCustomerPhoto(customer.customerCIF).catch(() => null),
+    cbsService.getCustomerPhoto(customer.accountNumber).catch(() => null),
     cbsService.getCustomerSignature(customer.accountNumber).catch(() => null),
   ]);
 

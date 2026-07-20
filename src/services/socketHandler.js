@@ -4474,12 +4474,6 @@ const handleSocketConnection = async (socket, io) => {
           socket.emit("chat:sent", chatMessage);
 
           console.log(`💬 Chat message from Customer ${phone} to Manager ${activeCall.currentManagerEmail}: ${message.substring(0, 50)}...`);
-        } else {
-          // Manager's socket couldn't be resolved (stale registry entry, manager
-          // reconnected under a new socket id, etc.) — surface this instead of
-          // silently dropping the message, so the customer knows to retry.
-          console.log(`⚠️ Could not resolve socket for Manager ${activeCall.currentManagerEmail} — chat message from ${phone} not delivered`);
-          socket.emit("chat:error", { message: "Unable to deliver message to manager. Please try again.", messageId });
         }
       }
     });
