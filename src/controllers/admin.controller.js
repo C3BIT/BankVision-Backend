@@ -677,7 +677,7 @@ const getRecordings = async (req, res) => {
         {
           model: CallLog,
           as: 'callLog',
-          attributes: ['id', 'customerName', 'managerEmail', 'managerName', 'status', 'duration']
+          attributes: ['id', 'referenceNumber', 'customerName', 'managerEmail', 'managerName', 'status', 'duration']
         }
       ]
     });
@@ -713,7 +713,7 @@ const getRecording = async (req, res) => {
         {
           model: CallLog,
           as: 'callLog',
-          attributes: ['id', 'customerName', 'customerPhone', 'managerName', 'status', 'duration']
+          attributes: ['id', 'referenceNumber', 'customerName', 'customerPhone', 'managerName', 'status', 'duration']
         }
       ]
     });
