@@ -57,7 +57,9 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
   const [cards, loans, photo, signature] = await Promise.all([
     lookupPhone ? cbsService.getCardsByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
     lookupPhone ? cbsService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
-    cbsService.getCustomerPhoto(customer.accountNumber).catch(() => null),
+    // getCustomerPhoto expects the CIF (CustomerNo), not the account number —
+    // mapDetail() already carries it back from CBS as customerCIF.
+    cbsService.getCustomerPhoto(customer.customerCIF).catch(() => null),
     cbsService.getCustomerSignature(customer.accountNumber).catch(() => null),
   ]);
 

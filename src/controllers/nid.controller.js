@@ -97,9 +97,10 @@ const initiateVerification = async (req, res) => {
         }
 
         // Attempt to get CBS photo for face match step
+        // getCustomerPhoto expects the CIF (CustomerNo), not the account number.
         let cbsPhotoBase64 = null;
         try {
-            cbsPhotoBase64 = await cbsService.getCustomerPhoto(accountNumber);
+            cbsPhotoBase64 = await cbsService.getCustomerPhoto(detail.customerCIF);
         } catch (photoErr) {
             console.warn("[NID] CBS photo unavailable:", photoErr.message);
         }
