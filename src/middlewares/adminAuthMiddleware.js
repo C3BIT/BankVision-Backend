@@ -37,7 +37,8 @@ const adminAuthenticateMiddleware = async (req, res, next) => {
     if (!(await enforceSession(decoded, token))) {
       return res.status(401).json({
         success: false,
-        message: 'Session expired or logged out'
+        code: 'SESSION_SUPERSEDED',
+        message: 'This account was logged in elsewhere, ending this session'
       });
     }
     // Awaited to avoid a race with a concurrent logout's invalidateSession DEL
@@ -91,7 +92,8 @@ const supervisorAuthMiddleware = async (req, res, next) => {
     if (!(await enforceSession(decoded, token))) {
       return res.status(401).json({
         success: false,
-        message: 'Session expired or logged out'
+        code: 'SESSION_SUPERSEDED',
+        message: 'This account was logged in elsewhere, ending this session'
       });
     }
     // Awaited to avoid a race with a concurrent logout's invalidateSession DEL

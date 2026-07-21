@@ -105,7 +105,13 @@ app.use(requestIdMiddleware); // Add correlation ID for distributed tracing
 
 
 app.use(bodyParser.urlencoded({ extended: false, limit: '1mb' }));
-app.use(express.json({ limit: '1mb' }));
+// LiveKit's webhook signature covers the exact raw request bytes, so stash
+// them before express.json() re-serializes into an object - the webhook
+// controller verifies against req.rawBody, not the parsed req.body.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(responseHandler());
 // Serve static files from uploads directory. Extensions are now locked to a

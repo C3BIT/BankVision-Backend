@@ -13,11 +13,12 @@ const handleLiveKitWebhook = async (req, res) => {
             process.env.LIVEKIT_API_SECRET
         );
 
-        // Verify and decode webhook event
-        // Note: req.body must be the raw body if signature verification is needed, 
-        // but in most internal setups with trusted networks, we can use the parsed body.
-        // The livekit-server-sdk WebhookReceiver.receive expects the raw body and headers.
-        const event = receiver.receive(req.body, req.get('Authorization'));
+        // WebhookReceiver.receive() hashes the exact raw bytes LiveKit signed -
+        // req.rawBody is stashed by the express.json() verify callback in index.js
+        // specifically so this doesn't have to re-serialize the parsed req.body
+        // (which wouldn't byte-for-byte match what was actually signed).
+        const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+        const event = await receiver.receive(rawBody, req.get('Authorization'));
 
         console.log(`🔌 LiveKit Webhook received: ${event.event}`, {
             egressId: event.egressInfo?.egressId,

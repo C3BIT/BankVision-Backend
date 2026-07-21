@@ -1778,7 +1778,13 @@ const resetPasswordAdmin = async (req, res) => {
 const getManagerActivityReport = async (req, res) => {
   try {
     const { managerEmail } = req.query;
+    // Date-only query strings (e.g. "2026-07-20") parse to UTC midnight, which
+    // excludes the entire selected end-date from the Op.between window below —
+    // push a date-only endDate to the end of that day so today's activity is included.
     const endDate = req.query.endDate ? new Date(req.query.endDate) : new Date();
+    if (req.query.endDate && /^\d{4}-\d{2}-\d{2}$/.test(req.query.endDate)) {
+      endDate.setUTCHours(23, 59, 59, 999);
+    }
     const startDate = req.query.startDate
       ? new Date(req.query.startDate)
       : new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);

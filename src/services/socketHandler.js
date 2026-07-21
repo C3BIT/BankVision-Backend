@@ -506,6 +506,15 @@ const handleSocketConnection = async (socket, io) => {
         // connection's pod.
         await ensureLocalActiveCall(io, normalizedPhone);
 
+        // Set immediately after the entry is guaranteed to exist locally, and
+        // before any further awaits below, so a near-simultaneous "disconnect"
+        // event (e.g. the tab closing right after End Call) sees this flag and
+        // skips its reconnect-grace-period path instead of racing call:ended
+        // with customer:reconnecting.
+        if (activeCustomerCalls[normalizedPhone]) {
+          activeCustomerCalls[normalizedPhone].callEndingByCustomer = true;
+        }
+
         // Notify manager about call end BEFORE clearing state
         if (activeCustomerCalls[normalizedPhone]?.currentManagerEmail) {
           const managerEmail = activeCustomerCalls[normalizedPhone].currentManagerEmail;
@@ -4637,7 +4646,7 @@ const handleSocketConnection = async (socket, io) => {
 
         // If in an active call, start grace period instead of ending immediately
         const activeCall = activeCustomerCalls[normalizedPhone];
-        if (activeCall && activeCall.currentManagerEmail) {
+        if (activeCall && activeCall.currentManagerEmail && !activeCall.callEndingByCustomer) {
           // Stop recording immediately — WebRTC data won't come in anyway
           if (activeCall.egressId) {
             try {
