@@ -8,7 +8,8 @@ const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, Transa
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
-const { logAdminActivity, getClientIP } = require('../services/loggingService');
+const { logAdminActivity, logPasswordChange, getClientIP } = require('../services/loggingService');
+const { verifyOTP, sendOTP } = require('../services/otpService');
 const { getActiveCallsData, getActiveCallsDataCluster, getOnlineManagersData } = require('../services/socketHandler');
 const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
@@ -1715,6 +1716,87 @@ const logoutAdmin = async (req, res) => {
   }
 };
 
+// Request a password reset OTP — also the only way out of the 403
+// passwordExpired dead-end in loginAdmin, since that block prevents a
+// session/JWT from ever being issued to call an authenticated change-password
+// endpoint with.
+const forgotPasswordAdmin = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const admin = await Admin.findOne({ where: { email } });
+
+    if (!admin) {
+      // Don't reveal if the account exists
+      return res.json({ success: true, message: 'If an account exists with this email, you will receive a password reset OTP.' });
+    }
+
+    await sendOTP(email);
+
+    res.json({ success: true, message: 'Password reset OTP sent to your email.' });
+  } catch (error) {
+    console.error('Admin Forgot Password Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to send OTP' });
+  }
+};
+
+const resetPasswordAdmin = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email, OTP, and new password are required' });
+    }
+
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: passwordValidation.errors.join('. '),
+        errors: passwordValidation.errors,
+        requirements: getPasswordRequirements()
+      });
+    }
+
+    const isValid = await verifyOTP(email, otp);
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    const admin = await Admin.findOne({ where: { email } });
+    if (!admin) {
+      return res.status(400).json({ success: false, message: 'Password reset failed. Please try again or contact support.' });
+    }
+
+    const historyCheck = await validatePasswordChange(newPassword, admin.password, admin.passwordHistory || []);
+    if (!historyCheck.valid) {
+      return res.status(400).json({ success: false, message: historyCheck.message });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    admin.passwordHistory = addToPasswordHistory(admin.password, admin.passwordHistory || []);
+    admin.password = hashedPassword;
+    admin.passwordChangedAt = new Date();
+    admin.failedLoginAttempts = 0;
+    admin.lockedUntil = null;
+    admin.lastFailedLogin = null;
+
+    await admin.save();
+    await invalidateSession(admin.id);
+    logPasswordChange(req, email, 'password_reset_success');
+
+    res.json({ success: true, message: 'Password reset successfully. You can now login with your new password.' });
+  } catch (error) {
+    console.error('Admin Reset Password Error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to reset password' });
+  }
+};
+
 /**
  * VBRM manager activity/performance report.
  * Aggregates time spent in each presence status (online, busy, break, lunch,
@@ -1829,6 +1911,8 @@ module.exports = {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
+  forgotPasswordAdmin,
+  resetPasswordAdmin,
   getCurrentAdmin,
   getChangeRequests,
   getManagers,

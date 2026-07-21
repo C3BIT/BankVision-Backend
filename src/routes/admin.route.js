@@ -3,6 +3,8 @@ const {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
+  forgotPasswordAdmin,
+  resetPasswordAdmin,
   getCurrentAdmin,
   getManagers,
   getDashboardStats,
@@ -32,7 +34,7 @@ const {
   getManagerActivityReport
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
-const { authRateLimiter } = require('../middlewares/securityMiddleware');
+const { authRateLimiter, passwordResetRateLimiter } = require('../middlewares/securityMiddleware');
 
 const router = new Router();
 
@@ -54,6 +56,31 @@ const router = new Router();
  *       200: { description: Logged in }
  */
 router.post('/login', authRateLimiter, loginAdmin);
+
+/**
+ * @swagger
+ * /admin/forgot-password:
+ *   post:
+ *     summary: Request a password reset OTP
+ *     tags: [Admin]
+ *     security: []
+ *     responses:
+ *       200: { description: Reset OTP sent if account exists }
+ */
+router.post('/forgot-password', passwordResetRateLimiter, forgotPasswordAdmin);
+
+/**
+ * @swagger
+ * /admin/reset-password:
+ *   post:
+ *     summary: Reset password using an emailed OTP
+ *     tags: [Admin]
+ *     security: []
+ *     responses:
+ *       200: { description: Password reset }
+ *       400: { description: Invalid or expired OTP }
+ */
+router.post('/reset-password', passwordResetRateLimiter, resetPasswordAdmin);
 
 // Protected routes (admin)
 /**
