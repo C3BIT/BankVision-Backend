@@ -25,7 +25,10 @@ const getAccountsListByPhone = async (phone) => {
   console.log(`✅ Found ${accounts.length} account(s) in CBS for phone: ${phone}`);
 
   // Enrich accounts with profile and signature images from CBS
-  const lookup = await cbsService.lookupCustomerByPhone(phone).catch(() => ({}));
+  const lookup = await cbsService.lookupCustomerByPhone(phone).catch((err) => {
+    console.error(`⚠️ CBS lookupCustomerByPhone failed for phone ${phone}:`, err.message);
+    return {};
+  });
   const { profileImage = null, signatureImage = null } = lookup;
 
   return accounts.map(acc => ({ ...acc, profileImage, signatureImage }));

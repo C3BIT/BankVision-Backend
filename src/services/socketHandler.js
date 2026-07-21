@@ -3978,93 +3978,12 @@ const handleSocketConnection = async (socket, io) => {
     // (merged into role-dispatched authoritative handlers)
     // ============ END RECORDING EVENTS ============
 
-    // ============ CALL HOLD EVENTS ============
-    socket.on("manager:hold-call", (data) => {
-      if (role !== "manager") return;
-
-      const customerPhone = socket.user.customerPhone;
-      const { reason = "" } = data || {};
-
-      console.log(`⏸️ Manager ${email} putting call on hold for customer ${customerPhone}`);
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("call:error", {
-          message: "No active call with customer",
-        });
-      }
-
-      activeCustomerCalls[customerPhone].isOnHold = true;
-      activeCustomerCalls[customerPhone].holdStartTime = Date.now();
-      activeCustomerCalls[customerPhone].holdReason = reason;
-      touchCall(customerPhone);
-
-      // Notify customer
-      io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
-        "call:on-hold",
-        {
-          managerId: email,
-          managerName: name || null,
-          reason: reason,
-          timestamp: Date.now()
-        }
-      );
-
-      // Confirm to manager
-      socket.emit("manager:call-on-hold", {
-        customerPhone: customerPhone,
-        timestamp: Date.now()
-      });
-
-      console.log(`⏸️ Call put on hold for customer ${customerPhone}`);
-    });
-
-    socket.on("manager:resume-call", (data) => {
-      if (role !== "manager") return;
-
-      const customerPhone = socket.user.customerPhone;
-
-      console.log(`▶️ Manager ${email} resuming call with customer ${customerPhone}`);
-
-      if (!customerPhone || !activeCustomerCalls[customerPhone]) {
-        console.log(`⚠️ No active call found for customer ${customerPhone}`);
-        return socket.emit("call:error", {
-          message: "No active call with customer",
-        });
-      }
-
-      const holdDuration = activeCustomerCalls[customerPhone].holdStartTime
-        ? Math.floor((Date.now() - activeCustomerCalls[customerPhone].holdStartTime) / 1000)
-        : 0;
-
-      activeCustomerCalls[customerPhone].isOnHold = false;
-      activeCustomerCalls[customerPhone].totalHoldTime =
-        (activeCustomerCalls[customerPhone].totalHoldTime || 0) + holdDuration;
-      delete activeCustomerCalls[customerPhone].holdStartTime;
-      delete activeCustomerCalls[customerPhone].holdReason;
-      touchCall(customerPhone);
-
-      // Notify customer
-      io.to(activeCustomerCalls[customerPhone].customerSocketId).emit(
-        "call:resumed",
-        {
-          managerId: email,
-          managerName: name || null,
-          holdDuration: holdDuration,
-          timestamp: Date.now()
-        }
-      );
-
-      // Confirm to manager
-      socket.emit("manager:call-resumed", {
-        customerPhone: customerPhone,
-        holdDuration: holdDuration,
-        timestamp: Date.now()
-      });
-
-      console.log(`▶️ Call resumed for customer ${customerPhone}, hold duration: ${holdDuration}s`);
-    });
-    // ============ END CALL HOLD EVENTS ============
+    // Note: the live hold flow is "call:hold"/"call:resume" above (~line 925),
+    // which updates the same activeCustomerCalls[...].isOnHold state and
+    // notifies customer/supervisor via "call:hold-started"/"call:hold-ended".
+    // The legacy "manager:hold-call"/"manager:resume-call" pair (emitting
+    // "call:on-hold"/"call:resumed") had no caller left in the Manager UI and
+    // was removed.
 
     // ============ SCREEN SYNC EVENTS ============
     socket.on("manager:screen-sync", (data) => {

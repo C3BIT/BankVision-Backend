@@ -188,8 +188,16 @@ const lookupCustomerByPhone = async (phone) => {
 
   const firstAccNo = linked && linked.length > 0 ? linked[0].accNo : null;
   const [profileImage, signatureImage] = await Promise.all([
-    getCustomerPhoto(cif).catch(() => null),
-    firstAccNo ? getCustomerSignature(firstAccNo).catch(() => null) : null,
+    getCustomerPhoto(cif).catch((err) => {
+      console.error(`⚠️ CBS getCustomerPhoto failed for CIF ${cif}:`, err.message);
+      return null;
+    }),
+    firstAccNo
+      ? getCustomerSignature(firstAccNo).catch((err) => {
+          console.error(`⚠️ CBS getCustomerSignature failed for account ${firstAccNo}:`, err.message);
+          return null;
+        })
+      : null,
   ]);
 
   if (!detail) {
