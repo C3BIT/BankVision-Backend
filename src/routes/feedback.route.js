@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const feedbackController = require('../controllers/feedback.controller');
 const { managerAuthenticateMiddleware } = require('../middlewares/authMiddleware');
+const { adminAuthenticateMiddleware } = require('../middlewares/adminAuthMiddleware');
+const { getTokenFromRequest } = require('../utils/cookieHelper');
+
+// The Admin Panel's Feedback tab and the Manager Panel both read this route,
+// but each carries a differently-named auth cookie (admin_auth_token vs
+// manager_auth_token) — dispatch to whichever middleware matches the cookie
+// actually present instead of hardcoding one, which previously 401'd every
+// admin request here.
+const managerOrAdminAuth = (req, res, next) => {
+  if (getTokenFromRequest(req, 'admin_auth_token')) {
+    return adminAuthenticateMiddleware(req, res, next);
+  }
+  return managerAuthenticateMiddleware(req, res, next);
+};
 
 /**
  * @swagger
@@ -38,7 +52,7 @@ router.post('/', feedbackController.submitFeedback);
  *     responses:
  *       200: { description: Feedback statistics }
  */
-router.get('/statistics', managerAuthenticateMiddleware, feedbackController.getFeedbackStatistics);
-router.get('/', managerAuthenticateMiddleware, feedbackController.getFeedbackList);
+router.get('/statistics', managerOrAdminAuth, feedbackController.getFeedbackStatistics);
+router.get('/', managerOrAdminAuth, feedbackController.getFeedbackList);
 
 module.exports = router;
