@@ -59,8 +59,14 @@ const getCustomerInfoByAccountNumber = async (accountNumber, phone = null) => {
     lookupPhone ? cbsService.getLoansByPhone(lookupPhone).catch(() => []) : Promise.resolve([]),
     // getCustomerPhoto expects the CIF (CustomerNo), not the account number —
     // mapDetail() already carries it back from CBS as customerCIF.
-    cbsService.getCustomerPhoto(customer.customerCIF).catch(() => null),
-    cbsService.getCustomerSignature(customer.accountNumber).catch(() => null),
+    cbsService.getCustomerPhoto(customer.customerCIF).catch((err) => {
+      console.error(`⚠️ CBS getCustomerPhoto failed for CIF ${customer.customerCIF}:`, err.message);
+      return null;
+    }),
+    cbsService.getCustomerSignature(customer.accountNumber).catch((err) => {
+      console.error(`⚠️ CBS getCustomerSignature failed for account ${customer.accountNumber}:`, err.message);
+      return null;
+    }),
   ]);
 
   console.log(`💳 Cards: ${cards.length} | 🏦 Loans: ${loans.length}`);

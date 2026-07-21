@@ -4520,7 +4520,7 @@ const handleSocketConnection = async (socket, io) => {
           (activeCustomerCalls[normalizedPhone].chatMessagesCount || 0) + 1;
         touchCall(normalizedPhone);
 
-        const managerSocketId = getOnlineUsersWithInfo().find(
+        const managerSocketId = activeCall.managerSocketId || getOnlineUsersWithInfo().find(
           (user) => user.email === activeCall.currentManagerEmail
         )?.socketId;
 
