@@ -8,7 +8,7 @@ const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, Transa
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
-const { logAdminActivity, logPasswordChange, getClientIP } = require('../services/loggingService');
+const { logAdminActivity, logPasswordChange, logLoginSuccess, logAuthEvent, getClientIP } = require('../services/loggingService');
 const { getActiveCallsData, getActiveCallsDataCluster, getOnlineManagersData } = require('../services/socketHandler');
 const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
@@ -95,6 +95,14 @@ const loginAdmin = async (req, res) => {
 
     if (!admin) {
       // Generic message - don't reveal if email exists
+      await logAuthEvent({
+        eventType: 'login_failed',
+        userType: 'admin',
+        userEmail: email,
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        failureReason: 'Unknown email'
+      });
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -103,6 +111,15 @@ const loginAdmin = async (req, res) => {
 
     if (!admin.isActive) {
       // Generic message - don't reveal account status
+      await logAuthEvent({
+        eventType: 'login_failed',
+        userType: 'admin',
+        userId: admin.id?.toString(),
+        userEmail: email,
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        failureReason: 'Account inactive'
+      });
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -112,6 +129,15 @@ const loginAdmin = async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, admin.password);
 
     if (!isPasswordValid) {
+      await logAuthEvent({
+        eventType: 'login_failed',
+        userType: 'admin',
+        userId: admin.id?.toString(),
+        userEmail: email,
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'],
+        failureReason: 'Invalid password'
+      });
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -167,6 +193,11 @@ const loginAdmin = async (req, res) => {
       userAgent: req.headers['user-agent'],
       ipAddress: getClientIP(req)
     });
+
+    // Audit trail for SESSION_SUPERSEDED investigations - this is the only place
+    // an admin session gets (re)created, so a login here is what kicks out any
+    // previously active session for this account.
+    await logLoginSuccess(req, admin, 'admin');
 
     const responseData = {
       admin: {
