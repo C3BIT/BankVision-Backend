@@ -72,9 +72,20 @@ const addUserInCache = async (
       status,
       connectedAt: new Date().toISOString(),
     });
+
+    // Record connection in the durable activity timeline (fire-and-forget)
+    logManagerStatusChange(email, name, status, null).catch((err) => {
+      console.error(`⚠️ Failed to log manager status connect for ${email}:`, err);
+    });
   }
 
   return uniqueKey;
+};
+
+// Lazily require models to avoid load-order/circular-require issues at module init.
+const logManagerStatusChange = async (managerEmail, managerName, status, previousStatus) => {
+  const { ManagerStatusLog } = require("../models");
+  await ManagerStatusLog.create({ managerEmail, managerName, status, previousStatus });
 };
 
 
@@ -94,7 +105,13 @@ const getUserBySocketId = (socketId) => {
 
 const removeUserInCache = (socketId) => {
   userCache.keys().forEach((key) => {
-    if (userCache.get(key)?.socketId === socketId) {
+    const user = userCache.get(key);
+    if (user?.socketId === socketId) {
+      if (user.role === "manager") {
+        logManagerStatusChange(user.email || key, user.name, AGENT_STATUS.OFFLINE, user.status).catch((err) => {
+          console.error(`⚠️ Failed to log manager status disconnect for ${key}:`, err);
+        });
+      }
       presenceSync.publishDel(key);
     }
   });
@@ -155,6 +172,7 @@ const updateUserStatus = (email, role, status) => {
       // Validate status
       const validStatuses = Object.values(AGENT_STATUS);
       if (validStatuses.includes(status)) {
+        const previousStatus = managerData.status;
         managerData.status = status;
         managerData.statusChangedAt = new Date().toISOString();
         presenceSync.publishSet(email, managerData);
@@ -164,6 +182,13 @@ const updateUserStatus = (email, role, status) => {
         managerStatusService.saveManagerStatus(email, status).catch(err => {
           console.error(`⚠️ Failed to persist manager status to Redis for ${email}:`, err);
         });
+
+        // Record in the durable activity timeline (fire-and-forget)
+        if (previousStatus !== status) {
+          logManagerStatusChange(email, managerData.name, status, previousStatus).catch((err) => {
+            console.error(`⚠️ Failed to log manager status change for ${email}:`, err);
+          });
+        }
 
         return true;
       }

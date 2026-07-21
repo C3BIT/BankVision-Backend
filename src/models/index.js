@@ -14,6 +14,7 @@ const { CallAgentReport } = require('./CallAgentReport');
 const { ChangeRequest } = require('./ChangeRequest');
 const { SystemSetting } = require('./SystemSetting');
 const { ScheduledCall } = require('./ScheduledCall');
+const { ManagerStatusLog } = require('./ManagerStatusLog');
 
 // Define associations
 CallLog.hasMany(VerificationLog, { foreignKey: 'callLogId', as: 'verifications' });
@@ -33,6 +34,9 @@ Manager.hasMany(ChangeRequest, { foreignKey: 'managerId', as: 'changeRequests' }
 
 ScheduledCall.belongsTo(Manager, { foreignKey: 'managerId', as: 'manager' });
 Manager.hasMany(ScheduledCall, { foreignKey: 'managerId', as: 'scheduledCalls' });
+
+ManagerStatusLog.belongsTo(Manager, { foreignKey: 'managerEmail', targetKey: 'email', as: 'manager' });
+Manager.hasMany(ManagerStatusLog, { foreignKey: 'managerEmail', sourceKey: 'email', as: 'statusLogs' });
 
 // CallAgentReport association is defined in CallAgentReport.js to avoid load-order issues
 
@@ -56,4 +60,5 @@ module.exports = {
   ChangeRequest,
   SystemSetting,
   ScheduledCall,
+  ManagerStatusLog,
 };

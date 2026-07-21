@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { AccessToken } = require('livekit-server-sdk');
 const { Admin } = require('../models/Admin');
-const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest, CallAgentReport } = require('../models');
+const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest, CallAgentReport, ManagerStatusLog } = require('../models');
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
@@ -1715,6 +1715,116 @@ const logoutAdmin = async (req, res) => {
   }
 };
 
+/**
+ * VBRM manager activity/performance report.
+ * Aggregates time spent in each presence status (online, busy, break, lunch,
+ * prayer, not_ready, offline) alongside call-handling stats, per manager,
+ * over a date range.
+ * GET /api/admin/manager-activity-report?startDate=&endDate=&managerEmail=
+ */
+const getManagerActivityReport = async (req, res) => {
+  try {
+    const { managerEmail } = req.query;
+    const endDate = req.query.endDate ? new Date(req.query.endDate) : new Date();
+    const startDate = req.query.startDate
+      ? new Date(req.query.startDate)
+      : new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const statusWhere = {
+      createdAt: { [Op.between]: [startDate, endDate] },
+    };
+    if (managerEmail) statusWhere.managerEmail = managerEmail;
+
+    const statusLogs = await ManagerStatusLog.findAll({
+      where: statusWhere,
+      order: [['managerEmail', 'ASC'], ['createdAt', 'ASC']],
+    });
+
+    // Compute time-in-status per manager by walking consecutive log entries;
+    // the final entry's duration is capped at the report window's end.
+    const managerStats = {};
+    const ensureManager = (email, name) => {
+      if (!managerStats[email]) {
+        managerStats[email] = {
+          managerEmail: email,
+          managerName: name || null,
+          statusDurationSeconds: { online: 0, busy: 0, break: 0, lunch: 0, prayer: 0, not_ready: 0, offline: 0 },
+          statusChanges: 0,
+        };
+      }
+      return managerStats[email];
+    };
+
+    const byManager = {};
+    statusLogs.forEach((log) => {
+      if (!byManager[log.managerEmail]) byManager[log.managerEmail] = [];
+      byManager[log.managerEmail].push(log);
+    });
+
+    Object.entries(byManager).forEach(([email, logs]) => {
+      const stats = ensureManager(email, logs[logs.length - 1]?.managerName);
+      stats.statusChanges = logs.length;
+      for (let i = 0; i < logs.length; i++) {
+        const current = logs[i];
+        const next = logs[i + 1];
+        const windowEnd = next ? new Date(next.createdAt) : endDate;
+        const durationSeconds = Math.max(0, (windowEnd.getTime() - new Date(current.createdAt).getTime()) / 1000);
+        if (stats.statusDurationSeconds[current.status] !== undefined) {
+          stats.statusDurationSeconds[current.status] += durationSeconds;
+        }
+      }
+    });
+
+    // Merge in call-handling stats for the same window
+    const callWhere = {
+      createdAt: { [Op.between]: [startDate, endDate] },
+    };
+    if (managerEmail) callWhere.managerEmail = managerEmail;
+
+    const callLogs = await CallLog.findAll({
+      where: callWhere,
+      attributes: ['managerEmail', 'managerName', 'status', 'duration'],
+    });
+
+    callLogs.forEach((call) => {
+      if (!call.managerEmail) return;
+      const stats = ensureManager(call.managerEmail, call.managerName);
+      stats.totalCalls = (stats.totalCalls || 0) + 1;
+      if (call.status === 'completed') {
+        stats.completedCalls = (stats.completedCalls || 0) + 1;
+        stats.totalCallDurationSeconds = (stats.totalCallDurationSeconds || 0) + (call.duration || 0);
+      }
+    });
+
+    const report = Object.values(managerStats).map((stats) => {
+      const completedCalls = stats.completedCalls || 0;
+      const totalCallDurationSeconds = stats.totalCallDurationSeconds || 0;
+      return {
+        ...stats,
+        totalCalls: stats.totalCalls || 0,
+        completedCalls,
+        avgCallDurationSeconds: completedCalls > 0 ? Math.round(totalCallDurationSeconds / completedCalls) : 0,
+      };
+    });
+
+    report.sort((a, b) => (b.totalCalls || 0) - (a.totalCalls || 0));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        report,
+        range: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+      },
+    });
+  } catch (error) {
+    console.error('Get Manager Activity Report Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to generate manager activity report',
+    });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -1744,5 +1854,6 @@ module.exports = {
   deleteManager,
   getAgentMonitorData,
   getSystemSettings,
-  updateSystemSetting
+  updateSystemSetting,
+  getManagerActivityReport
 };

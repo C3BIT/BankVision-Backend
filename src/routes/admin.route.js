@@ -28,7 +28,8 @@ const {
   getAgentMonitorData,
   getChangeRequests,
   getSystemSettings,
-  updateSystemSetting
+  updateSystemSetting,
+  getManagerActivityReport
 } = require('../controllers/admin.controller');
 const { adminAuthenticateMiddleware, supervisorAuthMiddleware, superAdminAuthMiddleware } = require('../middlewares/adminAuthMiddleware');
 const { authRateLimiter } = require('../middlewares/securityMiddleware');
@@ -171,6 +172,7 @@ router.delete('/managers/:managerId', superAdminAuthMiddleware, deleteManager);
  *       200: { description: Call logs }
  */
 router.get('/call-logs', adminAuthenticateMiddleware, getCallLogs);
+router.get('/manager-activity-report', adminAuthenticateMiddleware, getManagerActivityReport);
 
 // Recording routes
 /**
