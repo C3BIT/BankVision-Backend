@@ -93,7 +93,8 @@ const syncAllCriticalModels = async (sequelize) => {
         'Recording',
         'AuthenticationLog',
         'TransactionLog',
-        'AdminActivityLog'
+        'AdminActivityLog',
+        'CallAgentReport'
     ];
 
     for (const modelName of criticalModels) {

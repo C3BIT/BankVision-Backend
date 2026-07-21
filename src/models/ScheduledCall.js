@@ -33,7 +33,7 @@ const ScheduledCall = sequelize.define('ScheduledCall', {
     defaultValue: 'pending'
   },
   managerId: {
-    type: DataTypes.UUID,
+    type: DataTypes.INTEGER,
     allowNull: false
   },
   managerEmail: {
