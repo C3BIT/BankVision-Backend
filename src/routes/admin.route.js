@@ -3,7 +3,6 @@ const {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
-  forgotPasswordAdmin,
   resetPasswordAdmin,
   getCurrentAdmin,
   getManagers,
@@ -59,26 +58,14 @@ router.post('/login', authRateLimiter, loginAdmin);
 
 /**
  * @swagger
- * /admin/forgot-password:
- *   post:
- *     summary: Request a password reset OTP
- *     tags: [Admin]
- *     security: []
- *     responses:
- *       200: { description: Reset OTP sent if account exists }
- */
-router.post('/forgot-password', passwordResetRateLimiter, forgotPasswordAdmin);
-
-/**
- * @swagger
  * /admin/reset-password:
  *   post:
- *     summary: Reset password using an emailed OTP
+ *     summary: Reset an admin's password directly by email (no OTP)
  *     tags: [Admin]
  *     security: []
  *     responses:
  *       200: { description: Password reset }
- *       400: { description: Invalid or expired OTP }
+ *       400: { description: Invalid request }
  */
 router.post('/reset-password', passwordResetRateLimiter, resetPasswordAdmin);
 

@@ -12,7 +12,7 @@ const { statusCodes } = require('../utils/statusCodes');
  */
 const checkPasswordExpiry = (passwordChangedAt) => {
   const PASSWORD_EXPIRY_DAYS = 90;
-  const WARNING_DAYS = 7; // Warn user when < 7 days remaining
+  const WARNING_DAYS = 10; // Warn starting day 80 (10 days before the 90-day expiry)
 
   if (!passwordChangedAt) {
     // If no password change date, assume password is expired

@@ -9,7 +9,6 @@ const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
 const { logAdminActivity, logPasswordChange, getClientIP } = require('../services/loggingService');
-const { verifyOTP, sendOTP } = require('../services/otpService');
 const { getActiveCallsData, getActiveCallsDataCluster, getOnlineManagersData } = require('../services/socketHandler');
 const { getQueueStats } = require('../services/callQueueService');
 const { setAuthCookie, clearAuthCookie } = require('../utils/cookieHelper');
@@ -1716,40 +1715,17 @@ const logoutAdmin = async (req, res) => {
   }
 };
 
-// Request a password reset OTP — also the only way out of the 403
+// Reset an admin's password directly by email — the only way out of the 403
 // passwordExpired dead-end in loginAdmin, since that block prevents a
 // session/JWT from ever being issued to call an authenticated change-password
-// endpoint with.
-const forgotPasswordAdmin = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email is required' });
-    }
-
-    const admin = await Admin.findOne({ where: { email } });
-
-    if (!admin) {
-      // Don't reveal if the account exists
-      return res.json({ success: true, message: 'If an account exists with this email, you will receive a password reset OTP.' });
-    }
-
-    await sendOTP(email);
-
-    res.json({ success: true, message: 'Password reset OTP sent to your email.' });
-  } catch (error) {
-    console.error('Admin Forgot Password Error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to send OTP' });
-  }
-};
-
+// endpoint with. No OTP step: admin accounts are provisioned internally in
+// small numbers, so email-ownership verification is skipped by design.
 const resetPasswordAdmin = async (req, res) => {
   try {
-    const { email, otp, newPassword } = req.body;
+    const { email, newPassword } = req.body;
 
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Email, OTP, and new password are required' });
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email and new password are required' });
     }
 
     const passwordValidation = validatePassword(newPassword);
@@ -1760,11 +1736,6 @@ const resetPasswordAdmin = async (req, res) => {
         errors: passwordValidation.errors,
         requirements: getPasswordRequirements()
       });
-    }
-
-    const isValid = await verifyOTP(email, otp);
-    if (!isValid) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
     const admin = await Admin.findOne({ where: { email } });
@@ -1911,7 +1882,6 @@ module.exports = {
   registerAdmin,
   loginAdmin,
   logoutAdmin,
-  forgotPasswordAdmin,
   resetPasswordAdmin,
   getCurrentAdmin,
   getChangeRequests,
