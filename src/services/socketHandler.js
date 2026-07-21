@@ -622,13 +622,20 @@ const handleSocketConnection = async (socket, io) => {
         await broadcastQueueAndStatus(io);
       } else if (role === "manager") {
         const customerPhone = socket.user.customerPhone;
-        if (customerPhone && activeCustomerCalls[customerPhone]) {
+        const callData = customerPhone && activeCustomerCalls[customerPhone];
+        // Re-entrancy guard: a double-click or duplicate "call:end" emit can fire this
+        // handler twice concurrently for the same call. Without this flag, the second
+        // invocation reads callData before the first invocation's clearActiveCustomerCall()
+        // runs, then crashes reading .customerSocketId off the already-cleared entry after
+        // its own awaits resolve. Set synchronously (no await before this line) so the
+        // check-and-set can't race.
+        if (callData && !callData._ending) {
+          callData._ending = true;
           console.log(
             `🔄 Manager ${email} ended call with customer ${customerPhone}`
           );
 
           // Auto-stop recording
-          const callData = activeCustomerCalls[customerPhone];
           if (callData?.egressId) {
             try {
               const recordingService = require('./recordingService');
@@ -648,11 +655,10 @@ const handleSocketConnection = async (socket, io) => {
           }
 
           // CBS audit log — fire and forget
-          const _mgCallDataForLog = activeCustomerCalls[customerPhone];
-          if (_mgCallDataForLog?.cifNo) {
+          if (callData?.cifNo) {
             cbsService.saveCustomerInfoLog({
-              cifNo: _mgCallDataForLog.cifNo,
-              email: _mgCallDataForLog.email || "",
+              cifNo: callData.cifNo,
+              email: callData.email || "",
               mobile: customerPhone,
               purpose: "Video Banking Session",
               maker: email || "",
@@ -660,18 +666,18 @@ const handleSocketConnection = async (socket, io) => {
           }
 
           // Complete call log — peer_timeout means customer's LiveKit dropped, manager reports it
-          if (activeCustomerCalls[customerPhone]?.callRoom) {
+          if (callData?.callRoom) {
             try {
               const endedBy = isPeerTimeout ? "system" : "manager";
               const metadata = isPeerTimeout ? { disconnectedBy: "customer" } : undefined;
               await callLogService.completeCall(
-                activeCustomerCalls[customerPhone].callRoom,
+                callData.callRoom,
                 endedBy,
                 {
-                  phoneVerified: activeCustomerCalls[customerPhone].phoneVerified || false,
-                  emailVerified: activeCustomerCalls[customerPhone].emailVerified || false,
-                  faceVerified: activeCustomerCalls[customerPhone].faceVerified || false,
-                  chatMessagesCount: activeCustomerCalls[customerPhone].chatMessagesCount || 0,
+                  phoneVerified: callData.phoneVerified || false,
+                  emailVerified: callData.emailVerified || false,
+                  faceVerified: callData.faceVerified || false,
+                  chatMessagesCount: callData.chatMessagesCount || 0,
                   ...(metadata && { metadata }),
                 }
               );
@@ -681,10 +687,10 @@ const handleSocketConnection = async (socket, io) => {
           }
 
           // Notify customer that manager ended the call
-          const customerSocketId = activeCustomerCalls[customerPhone].customerSocketId;
+          const customerSocketId = callData.customerSocketId;
           // fetchSockets() is cluster-aware (via the Redis adapter); io.sockets.sockets.get()
           // only sees sockets local to this pod, causing false negatives with multiple replicas.
-          const customerSockets = await io.in(customerSocketId).fetchSockets();
+          const customerSockets = customerSocketId ? await io.in(customerSocketId).fetchSockets() : [];
 
           console.log(`📤 Preparing to send call:ended to customer ${customerPhone}`);
           console.log(`   Customer socket ID: ${customerSocketId}`);
@@ -706,8 +712,8 @@ const handleSocketConnection = async (socket, io) => {
             endedBy: "manager",
             customerId: customerPhone,
             message: "Call ended successfully",
-            callLogId: activeCustomerCalls[customerPhone].callLogId || null,
-            referenceNumber: activeCustomerCalls[customerPhone].referenceNumber || null,
+            callLogId: callData.callLogId || null,
+            referenceNumber: callData.referenceNumber || null,
           });
           console.log(`✅ Sent call:ended confirmation to manager ${email}`);
 
