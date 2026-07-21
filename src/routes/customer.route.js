@@ -10,7 +10,7 @@ const {
   checkVerificationStatusController,
   checkDuplicateEmailController,
 } = require("../controllers/customer.controller");
-const { customerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
+const { customerAuthenticateMiddleware, managerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 
 const router = Router();
 
@@ -100,7 +100,13 @@ router.post("/details", customerAuthenticateMiddleware, handleGetCustomerInfoByA
  *     responses:
  *       200: { description: Profile image reference }
  */
-router.post("/profile-image", customerAuthenticateMiddleware, getCustomerImageByPhoneController);
+// Manager-only in practice — the Manager Panel is the sole caller (face
+// verification during a live call needs to look up the customer's stored
+// profile photo by phone). It was previously gated behind
+// customerAuthenticateMiddleware, which the manager's browser never has a
+// cookie for, so every call 401'd and triggered the app's hard
+// redirect-to-login on every face-verification attempt.
+router.post("/profile-image", managerAuthenticateMiddleware, getCustomerImageByPhoneController);
 /**
  * @swagger
  * /customer/check-verification-status:
