@@ -34,6 +34,11 @@ const ManagerStatusLog = sequelize.define(
   },
   {
     tableName: "manager_status_logs",
+    // Must match managers.email's collation (utf8mb4_unicode_ci) exactly, or MySQL
+    // rejects the managerEmail FK with errno 150 "Foreign key constraint is
+    // incorrectly formed" -- the database's default collation differs from it.
+    charset: "utf8mb4",
+    collate: "utf8mb4_unicode_ci",
     timestamps: true,
     updatedAt: false,
     indexes: [
