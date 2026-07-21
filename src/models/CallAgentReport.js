@@ -39,6 +39,11 @@ const CallAgentReport = sequelize.define(
       defaultValue: [],
       comment: "Multi-select: e.g. kyc_verification, phone_change, email_change, address_change, dormant_activation, general_inquiry, complaint, document_request, other",
     },
+    disposition: {
+      type: DataTypes.ENUM("resolved", "escalated", "follow_up_required", "customer_dropped", "unresolved"),
+      allowNull: true,
+      comment: "Call outcome category selected by the manager on the post-call report",
+    },
     remarks: {
       type: DataTypes.TEXT,
       allowNull: true,

@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { AccessToken } = require('livekit-server-sdk');
 const { Admin } = require('../models/Admin');
-const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest } = require('../models');
+const { Manager, CallLog, CustomerFeedback, Recording, AuthenticationLog, TransactionLog, AdminActivityLog, VerificationLog, ChangeRequest, CallAgentReport } = require('../models');
 const { Op } = require('sequelize');
 const { validatePassword, getPasswordRequirements } = require('../utils/passwordPolicy');
 const { validatePasswordChange, addToPasswordHistory } = require('../utils/accountSecurity');
@@ -587,7 +587,7 @@ const getActiveCalls = async (req, res) => {
 // Get call logs with filters
 const getCallLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, startDate, endDate, status, managerEmail } = req.query;
+    const { page = 1, limit = 20, startDate, endDate, status, managerEmail, serviceType, disposition } = req.query;
     const offset = (page - 1) * limit;
 
     const where = {};
@@ -599,8 +599,22 @@ const getCallLogs = async (req, res) => {
     if (status) where.status = status;
     if (managerEmail) where.managerEmail = managerEmail;
 
+    // Service type and disposition live on the post-call agent report, not CallLog itself,
+    // so filtering on either requires an inner join to CallAgentReport.
+    const agentReportWhere = {};
+    if (disposition) agentReportWhere.disposition = disposition;
+    if (serviceType) {
+      // serviceTypes is stored as JSON (LONGTEXT under MariaDB) so a plain column match
+      // won't work — LIKE against the raw JSON string is the pragmatic match here.
+      agentReportWhere.serviceTypes = { [Op.like]: `%"${serviceType}"%` };
+    }
+    const needsAgentReportJoin = serviceType || disposition;
+
     const { count, rows } = await CallLog.findAndCountAll({
       where,
+      include: needsAgentReportJoin
+        ? [{ model: CallAgentReport, as: 'agentReport', where: agentReportWhere, attributes: ['serviceTypes', 'disposition'], required: true }]
+        : [{ model: CallAgentReport, as: 'agentReport', attributes: ['serviceTypes', 'disposition'], required: false }],
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -626,6 +640,15 @@ const getCallLogs = async (req, res) => {
       const plain = r.toJSON();
       if (!plain.managerName && plain.managerEmail && managerNameMap[plain.managerEmail]) {
         plain.managerName = managerNameMap[plain.managerEmail];
+      }
+      // MariaDB has no native JSON type (DataTypes.JSON is aliased to LONGTEXT),
+      // so serviceTypes can come back as a raw JSON string instead of an array.
+      if (plain.agentReport && typeof plain.agentReport.serviceTypes === 'string') {
+        try {
+          plain.agentReport.serviceTypes = JSON.parse(plain.agentReport.serviceTypes);
+        } catch {
+          plain.agentReport.serviceTypes = [];
+        }
       }
       return plain;
     });

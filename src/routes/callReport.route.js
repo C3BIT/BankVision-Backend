@@ -60,6 +60,7 @@ router.post("/", managerAuthenticateMiddleware, callReportController.submitRepor
  *       200: { description: Service types }
  */
 router.get("/service-types", viewerAuth, callReportController.getServiceTypes);
+router.get("/dispositions", viewerAuth, callReportController.getDispositions);
 router.get("/", viewerAuth, callReportController.getReports);
 
 module.exports = router;

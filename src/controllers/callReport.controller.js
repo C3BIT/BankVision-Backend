@@ -14,13 +14,22 @@ const ALLOWED_SERVICE_TYPES = [
   "other",
 ];
 
+/** Allowed disposition (call outcome) codes for post-call report */
+const ALLOWED_DISPOSITIONS = [
+  "resolved",
+  "escalated",
+  "follow_up_required",
+  "customer_dropped",
+  "unresolved",
+];
+
 /**
  * Submit post-call agent report
  * POST /api/call-reports
  */
 const submitReport = async (req, res) => {
   try {
-    const { callLogId, serviceTypes, remarks } = req.body;
+    const { callLogId, serviceTypes, remarks, disposition } = req.body;
     const managerEmail = req.user?.email;
     const managerName = req.user?.name || null;
 
@@ -46,6 +55,13 @@ const submitReport = async (req, res) => {
       });
     }
 
+    if (disposition && !ALLOWED_DISPOSITIONS.includes(disposition)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid disposition: ${disposition}`,
+      });
+    }
+
     const callLog = await CallLog.findByPk(callLogId);
     if (!callLog) {
       return res.status(404).json({
@@ -68,7 +84,7 @@ const submitReport = async (req, res) => {
 
     const existing = await CallAgentReport.findOne({ where: { callLogId } });
     if (existing) {
-      await existing.update({ serviceTypes, remarks });
+      await existing.update({ serviceTypes, remarks, disposition: disposition || existing.disposition });
       console.log(`📝 Agent report updated for call ${callLogId}`);
       return res.status(200).json({
         success: true,
@@ -84,6 +100,7 @@ const submitReport = async (req, res) => {
       referenceNumber: callLog.referenceNumber || null,
       serviceTypes,
       remarks: remarks || null,
+      disposition: disposition || null,
     });
 
     console.log(`📝 Post-call report submitted for call ${callLogId} by ${managerEmail}`);
@@ -193,8 +210,24 @@ const getServiceTypes = (req, res) => {
   res.status(200).json({ success: true, data: options });
 };
 
+/**
+ * Get disposition options (for frontend select)
+ * GET /api/call-reports/dispositions
+ */
+const getDispositions = (req, res) => {
+  const options = [
+    { value: "resolved", label: "Resolved" },
+    { value: "escalated", label: "Escalated" },
+    { value: "follow_up_required", label: "Follow-up Required" },
+    { value: "customer_dropped", label: "Customer Dropped" },
+    { value: "unresolved", label: "Unresolved" },
+  ];
+  res.status(200).json({ success: true, data: options });
+};
+
 module.exports = {
   submitReport,
   getReports,
   getServiceTypes,
+  getDispositions,
 };
