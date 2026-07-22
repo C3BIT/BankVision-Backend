@@ -65,6 +65,20 @@ const activeSupervisors = {}; // Track supervisors monitoring calls
 const disconnectTimers = {};
 const DISCONNECT_GRACE_MS = 30000; // 30 s to reconnect before call is force-ended
 
+// Repeating "manager needs a supervisor" notification: key → { intervalId, timeoutId }
+// Keyed by customerPhone since that's the active call's natural identity.
+const assistanceTimers = {};
+const ASSISTANCE_REPEAT_MS = 15000; // re-broadcast every 15s until claimed/cancelled
+const ASSISTANCE_TIMEOUT_MS = 120000; // auto-expire after 2 minutes unanswered
+
+const stopAssistanceTimers = (customerPhone) => {
+  const timers = assistanceTimers[customerPhone];
+  if (!timers) return;
+  clearInterval(timers.intervalId);
+  clearTimeout(timers.timeoutId);
+  delete assistanceTimers[customerPhone];
+};
+
 // Replicates the current in-memory state of one activeCustomerCalls /
 // activeSupervisors entry to every other pod (see callStateSync.js). Call
 // after mutating fields directly on the local object — cheap enough to call
@@ -75,6 +89,7 @@ const touchCall = (phone) => {
 };
 
 const removeCall = (phone) => {
+  stopAssistanceTimers(phone);
   delete activeCustomerCalls[phone];
   publishCallDelete(phone);
 };
@@ -3302,8 +3317,29 @@ const handleSocketConnection = async (socket, io) => {
       activeCustomerCalls[customerPhone].assistanceRequest = assistanceRequest;
       touchCall(customerPhone);
 
-      // Broadcast to all supervisors/admins
-      io.emit("supervisor:assistance-requested", assistanceRequest);
+      // Re-broadcast on an interval until a supervisor accepts, the manager
+      // cancels, or it times out — per BRD: "continue notification until
+      // admin/supervisor takes action."
+      stopAssistanceTimers(customerPhone);
+      const rebroadcast = () => io.emit("supervisor:assistance-requested", assistanceRequest);
+      rebroadcast();
+      const intervalId = setInterval(rebroadcast, ASSISTANCE_REPEAT_MS);
+      const timeoutId = setTimeout(() => {
+        stopAssistanceTimers(customerPhone);
+        if (activeCustomerCalls[customerPhone]?.assistanceRequest?.requestId === assistanceRequest.requestId) {
+          delete activeCustomerCalls[customerPhone].assistanceRequest;
+          touchCall(customerPhone);
+        }
+        io.emit("supervisor:assistance-cancelled", {
+          requestId: assistanceRequest.requestId,
+          customerPhone,
+          reason: "timeout",
+          timestamp: Date.now(),
+        });
+        socket.emit("manager:assistance-cancelled", { message: "No supervisor responded in time", reason: "timeout" });
+        console.log(`🆘 Assistance request timed out for ${customerPhone}`);
+      }, ASSISTANCE_TIMEOUT_MS);
+      assistanceTimers[customerPhone] = { intervalId, timeoutId };
 
       // Confirm to manager
       socket.emit("manager:assistance-requested", {
@@ -3326,6 +3362,7 @@ const handleSocketConnection = async (socket, io) => {
 
       const assistanceRequest = activeCustomerCalls[customerPhone].assistanceRequest;
       if (assistanceRequest) {
+        stopAssistanceTimers(customerPhone);
         assistanceRequest.status = "cancelled";
         touchCall(customerPhone);
 
@@ -3373,6 +3410,19 @@ const handleSocketConnection = async (socket, io) => {
         if (activeCustomerCalls[customerPhone].assistanceRequest) {
           activeCustomerCalls[customerPhone].assistanceRequest.status = "responded";
           touchCall(customerPhone);
+        }
+
+        // First supervisor to accept wins — stop the repeating notification
+        // and tell every other admin dashboard to drop the banner.
+        if (response === "accepted") {
+          stopAssistanceTimers(customerPhone);
+          io.emit("supervisor:assistance-cancelled", {
+            requestId: requestId,
+            customerPhone,
+            reason: "accepted",
+            acceptedBy: name || email,
+            timestamp: Date.now(),
+          });
         }
 
         console.log(`🆘 Supervisor ${email} responded to assistance request for ${customerPhone}`);
