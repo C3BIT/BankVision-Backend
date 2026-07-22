@@ -135,4 +135,17 @@ const customerAuthenticateMiddleware = async (req, res, next) => {
   }
 };
 
-module.exports = { managerAuthenticateMiddleware, customerAuthenticateMiddleware }
+// Accepts either session on routes legitimately called from both panels
+// (e.g. /customer/find-phone, /customer/find-email — the customer's own
+// change-contact flow AND the manager's change-request duplicate check both
+// hit these). Dispatches on whichever cookie is present rather than
+// duplicating routes/controllers per caller.
+const customerOrManagerAuthenticateMiddleware = async (req, res, next) => {
+  const customerToken = getTokenFromRequest(req, 'customer_auth_token');
+  if (customerToken) {
+    return customerAuthenticateMiddleware(req, res, next);
+  }
+  return managerAuthenticateMiddleware(req, res, next);
+};
+
+module.exports = { managerAuthenticateMiddleware, customerAuthenticateMiddleware, customerOrManagerAuthenticateMiddleware }

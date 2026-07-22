@@ -57,14 +57,13 @@ const normalizePhone = (phone) => {
 };
 
 const activeCustomerCalls = {};
-const rejectedManagers = {};
 const activeSupervisors = {}; // Track supervisors monitoring calls
 
 // Grace-period timers: key → setTimeout id
 // Customer keys:  normalizedPhone
 // Manager keys:   `mgr:${email}:${normalizedPhone}`
 const disconnectTimers = {};
-const DISCONNECT_GRACE_MS = 15000; // 15 s to reconnect before call is force-ended
+const DISCONNECT_GRACE_MS = 30000; // 30 s to reconnect before call is force-ended
 
 // Replicates the current in-memory state of one activeCustomerCalls /
 // activeSupervisors entry to every other pod (see callStateSync.js). Call
@@ -285,11 +284,39 @@ const handleSocketConnection = async (socket, io) => {
 
     if (role === "customer") {
       socket.emit("manager:list", findAvailableManagers());
+    } else if (role === "manager") {
+      // Push the current queue snapshot on every (re)connect rather than
+      // relying solely on the frontend requesting "queue:get" at the right
+      // moment. A manager only ever learns about queue changes from live
+      // "queue:updated" broadcasts, so anything already queued before this
+      // socket connected — or before a reconnect after a network blip / pod
+      // restart during a rolling deploy — was invisible until the next
+      // mutation. This mirrors the push customers already get above.
+      try {
+        const [queue, stats] = await Promise.all([getQueuedCustomers(), getQueueStats()]);
+        socket.emit("queue:list", { queue, stats });
+      } catch (error) {
+        console.error(`⚠️ Failed to push initial queue snapshot to manager ${email}:`, error.message);
+      }
     }
 
     socket.on("call:initiate", async (data) => {
       if (role !== "customer") return;
 
+      try {
+        await handleCallInitiate(data);
+      } catch (error) {
+        // Without this, any unexpected throw here (e.g. clearActiveCustomerCall)
+        // left the customer's socket with no ack at all — the frontend was
+        // already showing the queue-waiting screen with nothing to ever clear it.
+        console.error(`❌ call:initiate failed for ${phone}:`, error);
+        socket.emit("call:failed", {
+          message: "Unable to initiate call. Please try again."
+        });
+      }
+    });
+
+    const handleCallInitiate = async (data) => {
       const { verificationInfo } = data || {};
       console.log(`🔄 Customer ${phone} initiating call - checking customer registration (optional)`);
       console.log(`📋 Verification info:`, verificationInfo);
@@ -382,7 +409,7 @@ const handleSocketConnection = async (socket, io) => {
           message: "Unable to initiate call. Please try again."
         });
       }
-    });
+    };
 
     // REMOVED: call:accept and call:reject handlers
     // New queue-only design: Managers manually pick calls from dashboard using queue:pick-call
@@ -4894,8 +4921,7 @@ const attemptCallToNextManager = async (socket, customerPhone, managerQueue, io)
   if (
     activeCustomerCalls[normalizedCustomerPhone].attemptedManagers.has(
       selectedManager.email
-    ) ||
-    rejectedManagers[normalizedCustomerPhone]?.has(selectedManager.email)
+    )
   ) {
     console.log(
       `⚠️ Manager ${selectedManager.email} was already attempted or rejected, trying next`
@@ -5127,7 +5153,6 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
   // Remove from call queue if present
   await removeCustomerFromQueue(normalizedPhone);
 
-  delete rejectedManagers[normalizedPhone];
   removeCall(normalizedPhone);
   console.log(
     `✅ Successfully cleared call state for customer ${normalizedPhone}`
@@ -5155,7 +5180,6 @@ const clearActiveCustomerCall = async (customerPhone, io = null) => {
 const clearActiveCustomerCallLocal = (normalizedPhone) => {
   if (activeCustomerCalls[normalizedPhone]) {
     delete activeCustomerCalls[normalizedPhone];
-    delete rejectedManagers[normalizedPhone];
     console.log(`🧹 Cleared cross-pod active-call copy for customer ${normalizedPhone}`);
   }
 };

@@ -13,6 +13,7 @@
 const EXCLUDED_PATH_PREFIXES = [
   '/webhook', // external systems (LiveKit) POST/expect plain JSON here
   '/dev/health', // infra health checks expect plain JSON
+  '/sso', // external systems (MTB Neo) POST/expect plain JSON here
 ];
 
 const isExcluded = (req) =>

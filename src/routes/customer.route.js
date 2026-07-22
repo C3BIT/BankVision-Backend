@@ -10,7 +10,7 @@ const {
   checkVerificationStatusController,
   checkDuplicateEmailController,
 } = require("../controllers/customer.controller");
-const { customerAuthenticateMiddleware, managerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
+const { customerAuthenticateMiddleware, managerAuthenticateMiddleware, customerOrManagerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 
 const router = Router();
 
@@ -40,7 +40,12 @@ router.post("/create", createCustomerController);
  *     responses:
  *       200: { description: Accounts found }
  */
-router.post("/find-phone", customerAuthenticateMiddleware, getAccountsListByPhoneController);
+// Called from both panels: the customer's own change-contact flow AND the
+// manager's change-request duplicate check during a live call. A manager's
+// browser only ever carries manager_auth_token, so gating this behind
+// customerAuthenticateMiddleware alone 401'd every manager call and
+// triggered the manager panel's hard redirect-to-login mid-call.
+router.post("/find-phone", customerOrManagerAuthenticateMiddleware, getAccountsListByPhoneController);
 /**
  * @swagger
  * /customer/find-email:
@@ -50,7 +55,8 @@ router.post("/find-phone", customerAuthenticateMiddleware, getAccountsListByPhon
  *     responses:
  *       200: { description: Duplicate-check result }
  */
-router.post("/find-email", customerAuthenticateMiddleware, checkDuplicateEmailController);
+// Same dual-caller situation as /find-phone above.
+router.post("/find-email", customerOrManagerAuthenticateMiddleware, checkDuplicateEmailController);
 /**
  * @swagger
  * /customer/update-phone:

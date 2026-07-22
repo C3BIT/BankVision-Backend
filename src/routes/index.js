@@ -18,6 +18,7 @@ const webhookRoute = require("./webhook.route");
 const formsRoute = require("./forms.route");
 const captchaRoute = require("./captcha.route");
 const scheduledCallRoute = require("./scheduledCall.route");
+const ssoRoute = require("./sso.route");
 const router = express.Router();
 const defaultRoutes = [
   {
@@ -95,6 +96,10 @@ const defaultRoutes = [
   {
     path: "/scheduled-calls",
     route: scheduledCallRoute,
+  },
+  {
+    path: "/sso",
+    route: ssoRoute,
   },
 ];
 

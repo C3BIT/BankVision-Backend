@@ -71,6 +71,11 @@ const handleViewDocument = async (req, res) => {
 
     res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
     res.setHeader("Cache-Control", "private, max-age=300");
+    // The manager panel serves COEP: require-corp, so a cross-origin <img>
+    // load of this endpoint is blocked unless the response opts in via CORP.
+    // Still gated by staffAuthMiddleware above, so this only widens who may
+    // embed an already-authorized response, not who may fetch it.
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
     if (process.env.STORAGE_PROVIDER === "local") {
       const uploadDir = path.resolve(__dirname, "../../uploads");

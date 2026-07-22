@@ -139,6 +139,17 @@ const otpRateLimiter = createRateLimiter({
 });
 
 /**
+ * MTB Neo SSO handshake rate limiter (20 requests per minute per IP)
+ * Public, unauthenticated, security-sensitive endpoint — deny on Redis outage.
+ */
+const mtbNeoSsoRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  maxRequests: 20,
+  keyPrefix: 'rate_limit:mtb_neo_sso:',
+  message: 'Too many SSO authentication requests, please try again shortly.'
+});
+
+/**
  * Password reset rate limiter (5 requests per hour)
  */
 const passwordResetRateLimiter = createRateLimiter({
@@ -235,6 +246,7 @@ module.exports = {
   apiRateLimiter,
   authRateLimiter,
   otpRateLimiter,
+  mtbNeoSsoRateLimiter,
   passwordResetRateLimiter,
   bruteForceProtection,
   clearBruteForceAttempts,

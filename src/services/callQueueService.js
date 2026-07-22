@@ -84,6 +84,17 @@ async function addCustomerToQueue(customerData) {
   } = customerData;
 
   try {
+    // Unlike every other exported function here, this one had no readiness
+    // guard: with maxRetriesPerRequest: null, an ioredis command issued while
+    // Redis is unreachable never rejects, it just waits forever for the
+    // connection to come back — so a transient Redis blip left this promise
+    // (and the call:initiate handler awaiting it) hanging indefinitely, with
+    // no queue:added/call:failed ever reaching the customer.
+    if (connection.status !== 'ready') {
+      console.warn('⚠️ Redis not ready, cannot add customer to queue');
+      return { success: false, error: 'Queue temporarily unavailable' };
+    }
+
     // Check if customer already in queue
     const existingJobs = await callQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
     const alreadyQueued = existingJobs.find(job => normalizePhone(job.data.customerPhone) === normalizePhone(customerPhone));
@@ -351,10 +362,12 @@ async function escalateOldCalls(io) {
         // Upgrade to HIGH priority
         await job.changePriority({ priority: PRIORITY.HIGH });
 
-        // Notify customer
-        const customerSocket = io.sockets.sockets.get(job.data.socketId);
-        if (customerSocket) {
-          customerSocket.emit('queue:escalated', {
+        // Notify customer. fetchSockets() is cluster-aware (via the Redis
+        // adapter); io.sockets.sockets.get() only sees sockets local to this
+        // pod, causing false negatives with multiple replicas.
+        const customerSockets = await io.in(job.data.socketId).fetchSockets();
+        if (customerSockets.length > 0) {
+          io.to(job.data.socketId).emit('queue:escalated', {
             message: 'Your call has been escalated due to wait time. A supervisor has been notified.',
             waitTimeSeconds: Math.round(waitTime / 1000),
             newPriority: 'HIGH'
@@ -388,8 +401,12 @@ async function cleanupDisconnectedCustomers(io) {
     let removedCount = 0;
 
     for (const job of jobs) {
-      const socket = io.sockets.sockets.get(job.data.socketId);
-      if (!socket || !socket.connected) {
+      // fetchSockets() is cluster-aware (via the Redis adapter); io.sockets.sockets.get()
+      // only sees sockets local to this pod, which with multiple replicas would
+      // misreport a customer connected to a different pod as disconnected and
+      // evict them from the shared queue.
+      const sockets = await io.in(job.data.socketId).fetchSockets();
+      if (sockets.length === 0) {
         await job.remove();
         removedCount++;
         console.log(`🧹 Removed disconnected customer ${job.data.customerPhone} from queue`);
