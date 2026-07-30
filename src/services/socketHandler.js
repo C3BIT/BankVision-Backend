@@ -318,6 +318,17 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("call:initiate", async (data) => {
       if (role !== "customer") return;
 
+      // Defense in depth: socketAuth already rejects unauthenticated customer
+      // handshakes, but a call must never start without a verified OTP session.
+      // This makes the invariant explicit at the entry point (pentest finding #1).
+      if (!socket.user?.isAuthenticated) {
+        console.warn(`🚫 call:initiate blocked for ${phone} — session not OTP-verified`);
+        socket.emit("call:failed", {
+          message: "Verification required before starting a call.",
+        });
+        return;
+      }
+
       try {
         await handleCallInitiate(data);
       } catch (error) {

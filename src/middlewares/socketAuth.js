@@ -58,30 +58,24 @@ const socketAuthMiddleware = async (socket, next) => {
       console.log(`🔑 Socket auth success: ${decoded.email || decoded.phone} | Role: ${role} | Admin: ${decoded.type === 'admin'}`);
       return next();
     } catch (error) {
-      console.log("🚨 Token Expired or Invalid:", error.message);
-      socket.tokenExpired = true;
-      if (phoneNumber) {
-        socket.user = {
-          phone: phoneNumber,
-          isAuthenticated: false,
-          role: "customer",
-        };
-        return next();
-      }
+      // An invalid/expired token is never silently downgraded to an anonymous
+      // customer session. Previously, a client that supplied a `phone` query
+      // param with an expired (or absent) token was admitted as
+      // { isAuthenticated: false }; since no downstream handler ever read that
+      // flag, the entire queue/call/face-capture flow ran with no proof of OTP
+      // ownership — the "response manipulation" bypass (pentest Critical
+      // finding #1). The customer must re-verify to obtain a fresh signed token.
+      console.log("🚨 Socket auth rejected — token expired or invalid:", error.message);
       return next(
-        new Error("Authentication failed: Invalid token and no phone provided")
+        new Error("Authentication failed: session expired or invalid. Please verify again.")
       );
     }
-  } else if (phoneNumber) {
-    socket.user = {
-      phone: phoneNumber,
-      isAuthenticated: false,
-      role: "customer",
-    };
-    return next();
   } else {
+    // No token at all. A bare `phone` query param used to be sufficient to join
+    // as an anonymous customer — that was the bypass. A verified OTP session
+    // (customer_auth_token) or a staff session cookie is now mandatory.
     return next(
-      new Error("Authentication error: No token or phone number provided")
+      new Error("Authentication error: verification required")
     );
   }
 };

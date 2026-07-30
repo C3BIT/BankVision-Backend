@@ -12,11 +12,17 @@ const OTP_SUBJECT = "Verification OTP Code";
 const MAX_OTP_ATTEMPTS = 3;
 const LOCKOUT_TTL = 900; // 15 minutes
 
-// Master OTP bypass: unconditionally enabled at the user's explicit request
-// (re-approved after being told this reopens the pentest's Critical finding #1
-// with no environment safeguard). Every use is logged loudly below so it is
-// at least auditable. MUST be removed/re-gated before production/live-customer use.
-const isMasterOtp = (otp) => String(otp) === '666666';
+// Master OTP bypass: a local-development-only escape hatch. It is DISABLED
+// unless OTP_MASTER_BYPASS_ENABLED is explicitly set to "true" AND the process
+// is not running in production. Because the flag is unset in every deployed
+// (UAT/production) environment, the bypass does not exist there — closing the
+// pentest's Critical finding #1, which previously stayed open because the
+// bypass was hardcoded on with no environment safeguard. Any use is still
+// logged loudly below for auditability.
+const MASTER_OTP_ENABLED =
+  process.env.OTP_MASTER_BYPASS_ENABLED === 'true' &&
+  process.env.NODE_ENV !== 'production';
+const isMasterOtp = (otp) => MASTER_OTP_ENABLED && String(otp) === '666666';
 
 const attemptsKey = (key) => `${key}_attempts`;
 const lockoutKey  = (key) => `${key}_locked`;

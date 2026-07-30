@@ -128,7 +128,7 @@ const verifyPhoneOtpController = async (req, res) => {
 
 const verifyEmailController = async (req, res) => {
   try {
-    const { email, otp, phone } = req.body;
+    const { email, otp, phone, isChangeRequest } = req.body;
 
     // Support both email and phone-based email verification
     let emailToVerify = email;
@@ -162,6 +162,22 @@ const verifyEmailController = async (req, res) => {
         status: statusCodes.BAD_REQUEST,
         error: { code: 40011 },
       });
+    }
+
+    // Email is a standalone entry method (StartVerification lets the customer
+    // choose phone OR email), so it must mint the same short-lived session the
+    // phone path does — otherwise an email-verified customer reaches the socket
+    // handshake with no signed token and is (now) rejected there. The email is
+    // used as the customer identifier throughout the call flow, so it goes into
+    // the `phone` claim, matching how the rest of the system keys email-only
+    // customers. A mid-call "change email" verification (isChangeRequest) must
+    // NOT re-issue the session under the new, not-yet-approved address — same
+    // rationale as verifyPhoneOtpController.
+    if (!isChangeRequest) {
+      const token = jwt.sign({ phone: emailToVerify, role: "customer" }, jwtSecret, {
+        expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
+      });
+      setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");
     }
 
     return res.success(
