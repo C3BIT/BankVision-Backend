@@ -33,12 +33,28 @@ const hasValidSession = (req) => {
   }
 };
 
-// Enforce CAPTCHA ONLY on the public, unauthenticated OTP send (the customer's
-// initial call-start). Authenticated flows skip it so we don't add friction to
-// in-call resends or staff-initiated sends. This is the bot-defense entry gate
-// that was implemented (captchaMiddleware) but never wired to any route.
-const captchaForInitialStart = (req, res, next) =>
-  hasValidSession(req) ? next() : requireCaptcha(req, res, next);
+// Enforce CAPTCHA on the customer's initial call-start OTP send, while letting
+// in-call resends / contact-change and staff-initiated sends through.
+//
+// The initial-entry flows (StartVerification / PreCallVerification) always
+// present a captcha; the in-call contact-change flow (ChangeContactModal) never
+// does. So the decision is:
+//   1. If a captcha IS presented, it MUST be valid — even when the browser
+//      still holds a session cookie. (A stale customer_auth_token previously
+//      caused the whole check to be skipped, so a wrong captcha still sent the
+//      OTP — the reported bypass.)
+//   2. If NO captcha is presented, allow only an established session (in-call
+//      customer resend/change, or staff). Anonymous callers are rejected.
+const captchaForInitialStart = (req, res, next) => {
+  const { captchaId, captchaAnswer } = req.body || {};
+  if (captchaId && captchaAnswer) {
+    return requireCaptcha(req, res, next);
+  }
+  if (hasValidSession(req)) {
+    return next();
+  }
+  return requireCaptcha(req, res, next); // no captcha + no session → 400
+};
 
 /**
  * @swagger
