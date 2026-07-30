@@ -204,6 +204,18 @@ const handleSocketConnection = async (socket, io) => {
           }
         }
 
+        // A waiting (queued, not in-call) customer whose socket just dropped has
+        // a pending queue-removal grace timer (see the disconnect handler). They
+        // reconnected in time — cancel it so they keep their place in the queue.
+        // The active-call cancel above only fires when activeCustomerCalls has an
+        // entry, which a purely-queued customer never does.
+        if (!activeCustomerCalls[normalizedPhone] && disconnectTimers[normalizedPhone]) {
+          clearTimeout(disconnectTimers[normalizedPhone]);
+          delete disconnectTimers[normalizedPhone];
+          console.log(`✅ Queued customer ${normalizedPhone} reconnected within grace — kept in queue`);
+          broadcastQueueAndStatus(io);
+        }
+
         // Customer may instead (or additionally) be waiting in the BullMQ
         // queue rather than in an active call — that job's stored socketId
         // goes stale on every backend restart since Socket.IO state is
@@ -4815,16 +4827,42 @@ const handleSocketConnection = async (socket, io) => {
 
       if (role === "customer") {
         const normalizedPhone = normalizePhone(phone);
+        const activeCall = activeCustomerCalls[normalizedPhone];
 
-        // Remove from queue if waiting (not in an active call)
-        const wasInQueue = await removeCustomerFromQueue(phone);
-        if (wasInQueue) {
-          console.log(`📋 Customer ${phone} removed from queue on disconnect`);
-          broadcastQueueAndStatus(io);
+        // A WAITING (queued, not-yet-in-a-call) customer must NOT be evicted on
+        // a transient socket drop. Edge proxies cut idle WebSockets (~20s here)
+        // and the customer panel does not re-`call:initiate` on reconnect, so
+        // immediate removal permanently dropped waiting customers from the queue
+        // and the manager never saw them. Give them the same grace active calls
+        // get: keep the queue entry and start a timer; the reconnect handler
+        // above refreshes the socketId and cancels this timer. Remove only if
+        // they truly don't come back.
+        if (!activeCall) {
+          let isQueued = false;
+          try {
+            const queued = await getQueuedCustomers();
+            isQueued = queued.some(q => normalizePhone(q.customerPhone) === normalizedPhone);
+          } catch (err) {
+            console.error(`⚠️ Queue lookup failed on disconnect for ${normalizedPhone}:`, err.message);
+          }
+
+          if (isQueued) {
+            if (disconnectTimers[normalizedPhone]) clearTimeout(disconnectTimers[normalizedPhone]);
+            console.log(`⏳ Queued customer ${normalizedPhone} disconnected — ${DISCONNECT_GRACE_MS / 1000}s grace before queue removal`);
+            disconnectTimers[normalizedPhone] = setTimeout(async () => {
+              delete disconnectTimers[normalizedPhone];
+              if (activeCustomerCalls[normalizedPhone]) return; // got picked up meanwhile
+              const removed = await removeCustomerFromQueue(phone);
+              if (removed) {
+                console.log(`⌛ Queue grace expired — removed ${normalizedPhone} from queue`);
+                broadcastQueueAndStatus(io);
+              }
+            }, DISCONNECT_GRACE_MS);
+          }
+          return; // waiting customer handled (or nothing to do)
         }
 
         // If in an active call, start grace period instead of ending immediately
-        const activeCall = activeCustomerCalls[normalizedPhone];
         if (activeCall && activeCall.currentManagerEmail && !activeCall.callEndingByCustomer) {
           // Stop recording immediately — WebRTC data won't come in anyway
           if (activeCall.egressId) {
