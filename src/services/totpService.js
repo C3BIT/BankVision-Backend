@@ -140,15 +140,34 @@ const generateQRCode = async (otpAuthUrl) => {
  * Generate base32 secret (TOTP standard)
  * @returns {string} - Base32 encoded secret
  */
-const generateBase32Secret = () => {
-  const base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const length = 32;
-  let secret = '';
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-  for (let i = 0; i < length; i++) {
-    secret += base32Chars.charAt(Math.floor(Math.random() * base32Chars.length));
+// Decode an RFC4648 base32 string to a Buffer. Node's Buffer has no 'base32'
+// encoding, so `Buffer.from(secret, 'base32')` silently produced garbage and
+// every TOTP verification threw/failed. This decodes it correctly.
+const base32ToBuffer = (base32) => {
+  const clean = String(base32).toUpperCase().replace(/=+$/, '').replace(/\s/g, '');
+  let bits = '';
+  for (const ch of clean) {
+    const idx = BASE32_ALPHABET.indexOf(ch);
+    if (idx === -1) continue;
+    bits += idx.toString(2).padStart(5, '0');
   }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  }
+  return Buffer.from(bytes);
+};
 
+const generateBase32Secret = () => {
+  // CSPRNG, not Math.random — this secret is the root of the 2FA. 256 % 32 === 0
+  // so `byte % 32` maps uniformly onto the alphabet with no modulo bias.
+  const bytes = crypto.randomBytes(32);
+  let secret = '';
+  for (let i = 0; i < bytes.length; i++) {
+    secret += BASE32_ALPHABET[bytes[i] % 32];
+  }
   return secret;
 };
 
@@ -160,7 +179,7 @@ const generateBase32Secret = () => {
  */
 const generateTOTPToken = (secret, timeSlice) => {
   // Simplified TOTP generation (in production, use speakeasy)
-  const hmac = crypto.createHmac('sha1', Buffer.from(secret, 'base32'));
+  const hmac = crypto.createHmac('sha1', base32ToBuffer(secret));
   const timeBuffer = Buffer.allocUnsafe(8);
   timeBuffer.writeBigInt64BE(BigInt(timeSlice));
 
@@ -188,8 +207,8 @@ const generateBackupCodes = async (count = 8) => {
   const plainCodes = [];
 
   for (let i = 0; i < count; i++) {
-    // Generate 8-digit backup code
-    const code = Math.floor(10000000 + Math.random() * 90000000).toString();
+    // Generate 8-digit backup code with a CSPRNG (not Math.random).
+    const code = crypto.randomInt(10000000, 100000000).toString();
     plainCodes.push(code);
 
     // Hash the code for storage

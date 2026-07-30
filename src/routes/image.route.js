@@ -35,6 +35,31 @@ const staffAuthMiddleware = (req, res, next) => {
     return res.status(401).json({ success: false, message: "Invalid token" });
   }
 };
+// Uploads legitimately come from the customer panel (face capture / address
+// documents during a call) AND the manager panel (passive face verification),
+// so accept any of the three session cookies. Previously these routes were
+// fully unauthenticated — anyone could push arbitrary files into MinIO and
+// feed attacker-controlled paths to the face endpoints.
+const uploadAuthMiddleware = (req, res, next) => {
+  const token =
+    getTokenFromRequest(req, 'customer_auth_token') ||
+    getTokenFromRequest(req, 'manager_auth_token') ||
+    getTokenFromRequest(req, 'admin_auth_token');
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided" });
+  }
+  try {
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] });
+    req.user = decoded;
+    next();
+  } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ success: false, message: "Token expired" });
+    }
+    return res.status(401).json({ success: false, message: "Invalid token" });
+  }
+};
+
 const storage = multer.memoryStorage();
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -102,7 +127,7 @@ const verifyFileSignature = (req, res, next) => {
  *       400: { description: Invalid file type or content }
  */
 // Single file upload (face capture — images only)
-router.post("/upload", uploadImage.single("file"), verifyFileSignature, handleImageFileUpload);
+router.post("/upload", uploadAuthMiddleware, uploadImage.single("file"), verifyFileSignature, handleImageFileUpload);
 
 /**
  * @swagger
@@ -123,7 +148,7 @@ router.post("/upload", uploadImage.single("file"), verifyFileSignature, handleIm
  *       400: { description: Invalid file type or content }
  */
 // Multiple file upload (address verification documents — images + PDF, up to 5 files)
-router.post("/upload-multiple", uploadDocuments.array("files", 5), verifyFileSignature, handleMultipleFileUpload);
+router.post("/upload-multiple", uploadAuthMiddleware, uploadDocuments.array("files", 5), verifyFileSignature, handleMultipleFileUpload);
 
 /**
  * @swagger

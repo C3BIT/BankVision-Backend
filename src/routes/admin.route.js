@@ -100,7 +100,11 @@ router.get('/me', adminAuthenticateMiddleware, getCurrentAdmin);
  *     responses:
  *       201: { description: Admin created }
  */
-router.post('/register', adminAuthenticateMiddleware, registerAdmin);
+// Creating admin accounts is a super-admin-only action. Previously any 'admin'
+// could call this AND set role:'super_admin' in the body (mass-assignment),
+// escalating themselves to super-admin. Now only a super-admin may register
+// accounts, and the controller whitelists the role field.
+router.post('/register', superAdminAuthMiddleware, registerAdmin);
 /**
  * @swagger
  * /admin/managers:

@@ -162,17 +162,25 @@ const submitFaceMatch = async (req, res) => {
         }
 
         if (!verification.cbsPhotoBase64) {
-            // CBS photo not yet available — skip face match step
-            verification.faceMatched = true;
+            // Fail CLOSED when there is no reference photo to compare against.
+            // Previously this auto-set faceMatched=true, so a CBS photo outage
+            // (or any CIF with no stored photo) silently downgraded KYC to
+            // "the NID digits matched" with no biometric — a fail-open on the
+            // identity check. Now the biometric is marked not-passed and the
+            // case is routed to manual review; it can only be approved by a
+            // manager on the live call, never auto-verified.
+            verification.faceMatched = false;
             verification.faceMatchScore = null;
+            verification.requiresManualReview = true;
             await setVerification(verificationId, verification, Math.max(1000, verification.expiresAt - Date.now()));
             return res.json({
                 success: true,
                 data: {
                     verificationId,
-                    faceMatched: true,
+                    faceMatched: false,
                     faceMatchScore: null,
-                    note: "CBS photo unavailable — face match skipped",
+                    requiresManualReview: true,
+                    note: "CBS reference photo unavailable — biometric could not be verified; manual review required",
                 },
             });
         }

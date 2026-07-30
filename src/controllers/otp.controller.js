@@ -107,6 +107,10 @@ const verifyPhoneOtpController = async (req, res) => {
       });
     }
 
+    // Record server-side proof so the socket `customer:phone-verified` event can
+    // require it rather than trusting the client's assertion.
+    await OTP.markContactVerified("phone", phone);
+
     // A mid-call "change phone" verification proves ownership of the NEW,
     // not-yet-manager-approved number — it must not re-issue the session
     // cookie under that number, or the customer's socket re-authenticates
@@ -163,6 +167,10 @@ const verifyEmailController = async (req, res) => {
         error: { code: 40011 },
       });
     }
+
+    // Record server-side proof so the socket `customer:email-verified` event can
+    // require it rather than trusting the client's assertion.
+    await OTP.markContactVerified("email", emailToVerify);
 
     // Email is a standalone entry method (StartVerification lets the customer
     // choose phone OR email), so it must mint the same short-lived session the

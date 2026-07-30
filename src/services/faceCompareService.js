@@ -13,6 +13,54 @@ const SUBSCRIPTION_KEY = MXFACE_KEY;
 const OPENCV_URL = OPENCV_SERVICE_URL || "http://opencv-face-service:5097";
 
 const fs = require("fs").promises;
+const dns = require("dns").promises;
+const net = require("net");
+
+// SSRF guard for the remote-image fallback fetch. Local-disk and MinIO reads
+// are handled before we ever reach an arbitrary axios.get(imageUrl), so only
+// genuinely remote URLs are checked here. We refuse any URL that resolves to a
+// private/loopback/link-local address (which is what the Docker-internal
+// services — MinIO, OpenCV, CBS — and the cloud metadata endpoint live on),
+// defeating SSRF and DNS-rebinding into the internal network.
+const isPrivateAddress = (ip) => {
+  if (net.isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true; // link-local + cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    return false;
+  }
+  if (net.isIP(ip) === 6) {
+    const v = ip.toLowerCase();
+    if (v === "::1") return true;
+    if (v.startsWith("fe80") || v.startsWith("fc") || v.startsWith("fd")) return true;
+    if (v.startsWith("::ffff:")) return isPrivateAddress(v.replace("::ffff:", ""));
+    return false;
+  }
+  return false;
+};
+
+const assertSafeRemoteImageUrl = async (imageUrl) => {
+  let parsed;
+  try {
+    parsed = new URL(imageUrl);
+  } catch {
+    throw new Error("Invalid image URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Unsupported image URL scheme");
+  }
+  let resolved;
+  try {
+    resolved = await dns.lookup(parsed.hostname, { all: true });
+  } catch {
+    throw new Error("Could not resolve image host");
+  }
+  if (resolved.some(({ address }) => isPrivateAddress(address))) {
+    throw new Error("Refusing to fetch image from an internal address");
+  }
+};
 const path = require("path");
 
 // Helper to determine if a URL is local and return the absolute file path
@@ -76,6 +124,7 @@ const encodeImageToBase64FromUrl = async (imageUrl) => {
       return Buffer.concat(chunks).toString("base64");
     }
 
+    await assertSafeRemoteImageUrl(imageUrl);
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
       httpsAgent: internalHttpsAgent,

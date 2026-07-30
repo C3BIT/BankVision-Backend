@@ -1396,6 +1396,18 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("customer:phone-verified", async (data) => {
       if (role !== "customer") return;
 
+      // Require server-side proof that this phone actually completed an OTP
+      // challenge (marker set by /otp/verify-phone). Without this, the KYC
+      // "verified" flag persisted to the call log was settable by merely
+      // emitting this event with no OTP (pentest finding — same class as the
+      // OTP response-manipulation bypass).
+      const proven = await OTP.consumeContactVerified("phone", phone);
+      if (!proven) {
+        console.warn(`🚫 customer:phone-verified rejected for ${phone} — no server-side OTP proof`);
+        socket.emit("call:error", { message: "Phone number has not passed OTP verification." });
+        return;
+      }
+
       const normalizedPhone = normalizePhone(phone);
       console.log(`✅ Customer ${normalizedPhone} verified phone number`);
 
@@ -1529,6 +1541,16 @@ const handleSocketConnection = async (socket, io) => {
 
     socket.on("customer:email-verified", async (data) => {
       if (role !== "customer") return;
+
+      // Require server-side proof that this email actually completed an OTP
+      // challenge (marker set by /otp/verify-email). Same rationale as
+      // customer:phone-verified above.
+      const proven = await OTP.consumeContactVerified("email", data?.email);
+      if (!proven) {
+        console.warn(`🚫 customer:email-verified rejected for ${phone} — no server-side OTP proof`);
+        socket.emit("call:error", { message: "Email address has not passed OTP verification." });
+        return;
+      }
 
       const normalizedPhone = normalizePhone(phone);
       console.log(`✅ Customer ${normalizedPhone} verified email address`);
@@ -2325,6 +2347,12 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      // Only the manager assigned to THIS call may set its verification state.
+      if (activeCall.currentManagerEmail !== email) {
+        console.warn(`🚫 face-verified blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        return;
+      }
+
       // Update call state
       activeCall.faceVerified = true;
       activeCall.faceMatchPercentage = matchPercentage;
@@ -2479,6 +2507,11 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`✍️ Manager ${email} decision for signature of ${normalizedCustomerId}: ${decision}`);
 
       if (!activeCustomerCalls[normalizedCustomerId]) return;
+      // Only the manager assigned to THIS call may record its signature decision.
+      if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
+        console.warn(`🚫 signature-verification-decision blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        return;
+      }
       activeCustomerCalls[normalizedCustomerId].managerSocketId = socket.id;
       touchCall(normalizedCustomerId);
 
@@ -2911,6 +2944,16 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      // Only the manager assigned to THIS call may approve changes on it.
+      // Previously the handler keyed off the client-supplied customerId with no
+      // check, so any manager could push CBS record writes onto another
+      // manager's live call (cross-call tampering on core banking data).
+      if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
+        console.warn(`🚫 approve-change blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        socket.emit("call:error", { message: "You are not the manager handling this call." });
+        return;
+      }
+
       try {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber
           || activeCustomerCalls[normalizedCustomerId].accountNumber;
@@ -3004,6 +3047,13 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      // Only the manager assigned to THIS call may act on it (see approve-change).
+      if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
+        console.warn(`🚫 reject-change blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        socket.emit("call:error", { message: "You are not the manager handling this call." });
+        return;
+      }
+
       try {
         // Create audit record
         await ChangeRequest.create({
@@ -3046,6 +3096,13 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
         console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
+        return;
+      }
+
+      // Only the manager assigned to THIS call may act on it (see approve-change).
+      if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
+        console.warn(`🚫 approve-address-change blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        socket.emit("call:error", { message: "You are not the manager handling this call." });
         return;
       }
 
@@ -3127,6 +3184,13 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!activeCustomerCalls[normalizedCustomerId]) {
         console.log(`⚠️ No active call found for customer ${normalizedCustomerId}`);
+        return;
+      }
+
+      // Only the manager assigned to THIS call may act on it (see approve-change).
+      if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
+        console.warn(`🚫 reject-address-change blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
+        socket.emit("call:error", { message: "You are not the manager handling this call." });
         return;
       }
 
@@ -3397,6 +3461,9 @@ const handleSocketConnection = async (socket, io) => {
     });
 
     socket.on("supervisor:respond-assistance", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       // This can be used by supervisor to acknowledge/respond
       const { requestId, customerPhone: rawPhone, response } = data;
       const customerPhone = normalizePhone(rawPhone);
@@ -3444,6 +3511,9 @@ const handleSocketConnection = async (socket, io) => {
     // ============ SUPERVISOR MONITORING EVENTS ============
     // Get all active calls for supervisor dashboard
     socket.on("supervisor:get-active-calls", () => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       console.log('📊 supervisor:get-active-calls - Total in memory:', Object.keys(activeCustomerCalls).length);
       Object.entries(activeCustomerCalls).forEach(([phone, call]) => {
         console.log(`  - ${phone}: manager=${call.currentManagerEmail}, inProgress=${call.inProgress}`);
@@ -3686,6 +3756,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor joins a call in listen mode
     socket.on("supervisor:join-call", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone: rawPhone, mode = "listen" } = data; // mode: listen, whisper, barge
       const customerPhone = normalizePhone(rawPhone);
 
@@ -3754,6 +3827,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor starts whisper mode (audio to manager only)
     socket.on("supervisor:start-whisper", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -3800,6 +3876,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor stops whisper mode
     socket.on("supervisor:stop-whisper", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -3846,6 +3925,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor sends text whisper (private message to manager only)
     socket.on("supervisor:text-whisper", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone: rawPhone, message } = data;
       const customerPhone = normalizePhone(rawPhone);
 
@@ -3916,6 +3998,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor barge-in (join call, speak to both)
     socket.on("supervisor:barge-in", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -3972,6 +4057,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor takes over call from manager
     socket.on("supervisor:takeover-call", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
@@ -4029,6 +4117,9 @@ const handleSocketConnection = async (socket, io) => {
 
     // Supervisor leaves call
     socket.on("supervisor:leave-call", (data) => {
+      // Staff-only: supervisor/admin sessions carry isAdmin (socketAuth). Previously
+      // these had NO role check, so any customer could drive supervisor monitoring/takeover.
+      if (!isAdmin) return;
       const { customerPhone } = data;
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {

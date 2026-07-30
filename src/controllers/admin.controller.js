@@ -51,13 +51,18 @@ const registerAdmin = async (req, res) => {
       });
     }
 
+    // Whitelist the role. Defence in depth alongside the super-admin-only route
+    // guard: never trust the client-supplied role verbatim (mass-assignment).
+    const ALLOWED_ROLES = ['admin', 'supervisor', 'super_admin'];
+    const resolvedRole = ALLOWED_ROLES.includes(role) ? role : 'admin';
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const admin = await Admin.create({
       name,
       email,
       password: hashedPassword,
-      role: role || 'admin'
+      role: resolvedRole
     });
 
     res.status(201).json({

@@ -1,7 +1,15 @@
 const { Router } = require("express");
 const { compareFacesController, compareFacesByAWSController, faceServiceHealthController, verifyIdentityController } = require("../controllers/face.controller");
+const { managerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 
 const router = Router();
+
+// Face comparison / identity verification is a manager-operated control used
+// during a live KYC call — the manager panel is the only legitimate caller
+// (mirrors nid.route / signature.route). These routes were previously fully
+// unauthenticated, exposing (a) a CBS identity match/no-match oracle over
+// arbitrary account numbers and (b) SSRF via the server-side image fetch.
+// Every route below now requires a valid manager session.
 
 /**
  * @swagger
@@ -29,7 +37,7 @@ const router = Router();
  *     responses:
  *       200: { description: "{ matched, similarity, confidence }" }
  */
-router.post("/compare", compareFacesController);
+router.post("/compare", managerAuthenticateMiddleware, compareFacesController);
 /**
  * @swagger
  * /face/compare-aws:
@@ -39,7 +47,7 @@ router.post("/compare", compareFacesController);
  *     responses:
  *       200: { description: "{ matched, similarity, confidence }" }
  */
-router.post("/compare-aws", compareFacesByAWSController);
+router.post("/compare-aws", managerAuthenticateMiddleware, compareFacesByAWSController);
 /**
  * @swagger
  * /face/verify-identity:
@@ -49,7 +57,7 @@ router.post("/compare-aws", compareFacesByAWSController);
  *     responses:
  *       200: { description: Verification result }
  */
-router.post("/verify-identity", verifyIdentityController);
+router.post("/verify-identity", managerAuthenticateMiddleware, verifyIdentityController);
 /**
  * @swagger
  * /face/health:

@@ -13,6 +13,34 @@ const { generateRandomNumberBySize } = require("../utils/generateRandomNumber");
 const { statusCodes } = require("../utils/statusCodes");
 const { createCustomerSchema } = require("../validations/customerValidations");
 
+// Ensures the account being modified actually belongs to the OTP-verified
+// caller (req.customerPhone is set from the signed JWT, never the body). Without
+// this, any customer with a valid session could pass another customer's
+// accountNumber and mutate that victim's contact/address record — the same
+// trust-the-client-identifier flaw as the OTP bypass. Mirrors the ownership
+// check already present in handleGetCustomerInfoByAccountNb.
+// Local phone normalizer (matches the socket layer): strip non-digits, drop BD
+// country code, ensure a single leading 0.
+const normalizePhoneValue = (phone) => {
+  if (!phone) return "";
+  let c = String(phone).replace(/\D/g, "");
+  if (c.startsWith("880") && c.length > 10) c = c.substring(3);
+  if (c.startsWith("1") && c.length === 10) c = "0" + c;
+  return c;
+};
+
+const assertAccountOwnedByCaller = async (accountNumber, callerPhone) => {
+  const accounts = await getAccountsListByPhone(callerPhone).catch(() => []);
+  const owns = Array.isArray(accounts) &&
+    accounts.some((a) => String(a.accountNumber) === String(accountNumber));
+  if (!owns) {
+    throw Object.assign(new Error("This account does not belong to the verified caller"), {
+      status: statusCodes.UNAUTHORIZED,
+      error: { code: 40118 },
+    });
+  }
+};
+
 const createCustomerController = async (req, res) => {
   try {
     const { mobileNumber, email, name, address, branch, profileImage } =
@@ -61,6 +89,18 @@ const getAccountsListByPhoneController = async (req, res) => {
       });
     }
     const accounsList = await getAccountsListByPhone(phone);
+
+    // A customer querying a number OTHER than their own verified number only
+    // ever needs an existence signal (change-contact duplicate check). Returning
+    // the full CBS account list there turns this into a PII/account-number
+    // enumeration oracle. Redact to existence-only for that case; a customer
+    // querying their own number, and managers (trusted operators, no
+    // req.customerPhone), still receive full data.
+    if (req.customerPhone && normalizePhoneValue(phone) !== normalizePhoneValue(req.customerPhone)) {
+      const existenceOnly = (accounsList || []).map(() => ({}));
+      return res.success(existenceOnly, "Account List by Phone Fetched Successfully");
+    }
+
     res.success(accounsList, "Account List by Phone Fetched Successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -78,6 +118,15 @@ const checkDuplicateEmailController = async (req, res) => {
     }
     const { checkEmailExists } = require("../services/customerService");
     const existingAccounts = await checkEmailExists(email);
+
+    // As with find-phone: a customer only needs an existence signal here
+    // (duplicate-email check on a candidate address). Don't leak other accounts'
+    // details to a customer session; managers still get full data.
+    if (req.customerPhone) {
+      const existenceOnly = (existingAccounts || []).map(() => ({}));
+      return res.success(existenceOnly, "Account List by Email Fetched Successfully");
+    }
+
     res.success(existingAccounts, "Account List by Email Fetched Successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
@@ -99,6 +148,7 @@ const handleUpdatePhoneByAccountNumber = async (req, res) => {
         error: { code: 40012 },
       });
     }
+    await assertAccountOwnedByCaller(accountNumber, req.customerPhone);
     const isPhoneUpadated = await updatePhoneByAccountNumber({
       accountNumber,
       newPhone: phone,
@@ -123,6 +173,7 @@ const handleUpdateEmailByAccountNumber = async (req, res) => {
         error: { code: 40010 },
       });
     }
+    await assertAccountOwnedByCaller(accountNumber, req.customerPhone);
     const isEmailUpadated = await updateEmailByAccountNumber({
       accountNumber,
       newEmail: email,
@@ -147,6 +198,7 @@ const handleUpdateAddressByAccountNumber = async (req, res) => {
         error: { code: 40031 },
       });
     }
+    await assertAccountOwnedByCaller(accountNumber, req.customerPhone);
     const isAddressUpadated = await updateAddressByAccountNumber({
       accountNumber,
       newAddress: address,
@@ -206,7 +258,10 @@ const getCustomerImageByPhoneController = async (req, res) => {
 
 const checkVerificationStatusController = async (req, res) => {
   try {
-    const { phone } = req.body;
+    // Scope strictly to the OTP-verified caller — a customer may only check
+    // their OWN verification status, never an arbitrary phone from the body
+    // (prevents using a valid session to probe other customers).
+    const phone = req.customerPhone;
     if (!phone) {
       throw Object.assign(new Error(), {
         status: statusCodes.BAD_REQUEST,

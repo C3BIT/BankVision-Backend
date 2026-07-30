@@ -5,11 +5,14 @@ const callLogService = require("../services/callLogService");
  */
 const getCallLogs = async (req, res) => {
   try {
-    const { customerPhone, managerEmail, status, startDate, endDate, page, limit } = req.query;
+    const { customerPhone, status, startDate, endDate, page, limit } = req.query;
 
     const filters = {};
     if (customerPhone) filters.customerPhone = customerPhone;
-    if (managerEmail) filters.managerEmail = managerEmail;
+    // A manager token may only list its OWN calls — the managerEmail query
+    // filter is forced to the authenticated manager and never taken from the
+    // client (prevents reading other managers' logs via this endpoint).
+    filters.managerEmail = req.user.email;
     if (status) filters.status = status;
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
@@ -41,10 +44,11 @@ const getCallLogs = async (req, res) => {
  */
 const getCallStatistics = async (req, res) => {
   try {
-    const { managerEmail, startDate, endDate } = req.query;
+    const { startDate, endDate } = req.query;
 
     const filters = {};
-    if (managerEmail) filters.managerEmail = managerEmail;
+    // Force manager scope to the authenticated caller (see getCallLogs).
+    filters.managerEmail = req.user.email;
 
     // Handle date filtering with Bangladesh timezone (UTC+6)
     if (startDate && endDate) {
@@ -127,6 +131,15 @@ const getCallLogById = async (req, res) => {
       });
     }
 
+    // A manager may only read a call log they handled. Compare against the
+    // authenticated email rather than returning any record by id (IDOR).
+    if (callLog.managerEmail && req.user?.email && callLog.managerEmail !== req.user.email) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view this call log",
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: callLog,
@@ -154,8 +167,11 @@ const getCustomerCallLogs = async (req, res) => {
       limit: parseInt(limit) || 20,
     };
 
+    // Managers may review a customer's history only for calls THEY handled —
+    // scoping by the authenticated manager's email prevents pulling an arbitrary
+    // customer's full cross-manager call history.
     const result = await callLogService.getCallLogs(
-      { customerPhone },
+      { customerPhone, managerEmail: req.user.email },
       pagination
     );
 
@@ -179,10 +195,13 @@ const getCustomerCallLogs = async (req, res) => {
  */
 const getManagerCallLogs = async (req, res) => {
   try {
-    const { managerEmail } = req.params;
     const { page, limit, startDate, endDate } = req.query;
 
-    const filters = { managerEmail };
+    // Scope to the authenticated manager. The :managerEmail path param is
+    // ignored for authorization — a manager may only read their OWN call logs,
+    // not another manager's by supplying their address (broken object-level
+    // authorization).
+    const filters = { managerEmail: req.user.email };
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
 
@@ -213,10 +232,11 @@ const getManagerCallLogs = async (req, res) => {
  */
 const getManagerStatistics = async (req, res) => {
   try {
-    const { managerEmail } = req.params;
     const { startDate, endDate } = req.query;
 
-    const filters = { managerEmail };
+    // Scope to the authenticated manager (ignore the :managerEmail path param
+    // for authorization) — same reasoning as getManagerCallLogs.
+    const filters = { managerEmail: req.user.email };
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
 

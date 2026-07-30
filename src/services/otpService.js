@@ -11,6 +11,42 @@ const OTP_EXPIRY_TIME = 180;
 const OTP_SUBJECT = "Verification OTP Code";
 const MAX_OTP_ATTEMPTS = 3;
 const LOCKOUT_TTL = 900; // 15 minutes
+const VERIFIED_MARKER_TTL = 900; // 15 minutes — window to consume a proven OTP
+
+// Same normalization the socket layer applies (strip non-digits, drop BD
+// country code, ensure a single leading 0) so a marker set from the REST
+// controller keys identically to a lookup from the socket handler.
+const normalizePhoneKey = (phone) => {
+  if (!phone) return "";
+  let cleaned = String(phone).replace(/\D/g, "");
+  if (cleaned.startsWith("880") && cleaned.length > 10) cleaned = cleaned.substring(3);
+  if (cleaned.startsWith("1") && cleaned.length === 10) cleaned = "0" + cleaned;
+  return cleaned;
+};
+
+const verifiedMarkerKey = (type, value) =>
+  type === "phone"
+    ? `verified:phone:${normalizePhoneKey(value)}`
+    : `verified:email:${String(value).toLowerCase().trim()}`;
+
+// Called by the REST OTP-verify controllers on a genuine pass. It records
+// server-side proof that THIS phone/email actually completed an OTP challenge,
+// so the socket `customer:*-verified` events can require that proof instead of
+// trusting the client's word (pentest finding: KYC "verified" flags were
+// settable by simply emitting the socket event with no OTP).
+const markContactVerified = async (type, value) => {
+  await otpCache.set(verifiedMarkerKey(type, value), true, VERIFIED_MARKER_TTL);
+};
+
+// Called by the socket handler. Single-use: returns true only if a genuine OTP
+// pass was recorded, and consumes it so the proof can't be replayed.
+const consumeContactVerified = async (type, value) => {
+  const key = verifiedMarkerKey(type, value);
+  const proven = await otpCache.get(key);
+  if (!proven) return false;
+  await otpCache.del(key);
+  return true;
+};
 
 // Master OTP bypass: a local-development-only escape hatch. It is DISABLED
 // unless OTP_MASTER_BYPASS_ENABLED is explicitly set to "true" AND the process
@@ -229,6 +265,12 @@ const verifyExternalPhoneOtp = async (phone, externalPhone, otp) => {
   if (!phone || !externalPhone || !otp) return false;
 
   const otpKey = `${phone}_external_${externalPhone}`;
+
+  // Brute-force protection, matching verifyPhoneOtp/verifyOTP: this variant
+  // previously had NO lockout and NO attempt counter, and its route had no rate
+  // limiter — a 6-digit code was guessable at scale within the 180s TTL.
+  await checkLockout(otpKey);
+
   const cachedOtp = await otpCache.get(otpKey);
 
   console.log(`🔐 External Phone OTP Verify: customer=${phone}, external=${externalPhone}, provided=${otp}, cached=${cachedOtp}`);
@@ -236,15 +278,18 @@ const verifyExternalPhoneOtp = async (phone, externalPhone, otp) => {
   if (isMasterOtp(otp)) {
     console.warn(`🚨 MASTER OTP BYPASS USED: customer=${phone}, external=${externalPhone}, time=${new Date().toISOString()}`);
     await otpCache.del(otpKey);
+    await clearAttempts(otpKey);
     return true;
   }
 
   if (!cachedOtp || String(cachedOtp) !== String(otp)) {
-    console.log(`❌ External Phone OTP verification failed`);
+    const attempts = await recordFailedAttempt(otpKey);
+    console.log(`❌ External Phone OTP verification failed (attempt ${attempts}/${MAX_OTP_ATTEMPTS})`);
     return false;
   }
 
   await otpCache.del(otpKey);
+  await clearAttempts(otpKey);
   console.log(`✅ External Phone OTP verified successfully`);
   return true;
 };
@@ -256,4 +301,6 @@ module.exports = {
   verifyPhoneOtp,
   sendExternalPhoneOtp,
   verifyExternalPhoneOtp,
+  markContactVerified,
+  consumeContactVerified,
 };
