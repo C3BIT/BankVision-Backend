@@ -48,16 +48,14 @@ const consumeContactVerified = async (type, value) => {
   return true;
 };
 
-// Master OTP bypass: a local-development-only escape hatch. It is DISABLED
-// unless OTP_MASTER_BYPASS_ENABLED is explicitly set to "true" AND the process
-// is not running in production. Because the flag is unset in every deployed
-// (UAT/production) environment, the bypass does not exist there — closing the
-// pentest's Critical finding #1, which previously stayed open because the
-// bypass was hardcoded on with no environment safeguard. Any use is still
-// logged loudly below for auditability.
-const MASTER_OTP_ENABLED =
-  process.env.OTP_MASTER_BYPASS_ENABLED === 'true' &&
-  process.env.NODE_ENV !== 'production';
+// Master OTP bypass ("666666"): an explicit, opt-in testing escape hatch that is
+// DISABLED unless OTP_MASTER_BYPASS_ENABLED is set to "true". It is unset by
+// default, so the bypass does not exist in any environment that doesn't
+// deliberately turn it on. Currently enabled on UAT for QA convenience; every
+// use is logged loudly below for auditability.
+// ⚠️ MUST be turned OFF (unset OTP_MASTER_BYPASS_ENABLED) before go-live /
+//    real-customer traffic — it re-opens pentest Critical finding #1 while on.
+const MASTER_OTP_ENABLED = process.env.OTP_MASTER_BYPASS_ENABLED === 'true';
 const isMasterOtp = (otp) => MASTER_OTP_ENABLED && String(otp) === '666666';
 
 const attemptsKey = (key) => `${key}_attempts`;
