@@ -15,8 +15,13 @@ const initializeWebSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true,
     },
-    pingTimeout: 60000,
-    pingInterval: 25000,
+    // Keepalive tuned for the proxy in front of the pods: the manager socket was
+    // being dropped at ~20s idle, before Socket.IO's default 25s ping could send
+    // a frame — so the connection died and reconnected in a loop, and the call-
+    // routing worker kept finding the manager mid-reconnect (missed calls). Ping
+    // every 10s keeps a frame flowing well inside the idle window.
+    pingInterval: 10000,
+    pingTimeout: 20000,
   });
 
   // Redis adapter — broadcasts socket events across all backend replicas.
