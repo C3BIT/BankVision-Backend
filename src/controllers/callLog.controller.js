@@ -78,7 +78,7 @@ const getCallStatistics = async (req, res) => {
         filters.startDate = start.toISOString();
         filters.endDate = extendedEnd.toISOString();
 
-        console.log(`📊 Statistics request - Date range: ${filters.startDate} to ${filters.endDate}, Manager: ${managerEmail || 'all'}`);
+        console.log(`📊 Statistics request - Date range: ${filters.startDate} to ${filters.endDate}, Manager: ${filters.managerEmail || 'all'}`);
       }
     } else {
       // If no dates provided, calculate "today" in Bangladesh timezone (UTC+6)
