@@ -2467,31 +2467,15 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`📡 Detail: Found in online cache: ${!!targetManager}. Target Socket: ${managerSocketId}`);
 
       if (managerSocketId) {
-        // Convert MinIO URL to base64 so manager panel can display it without public URL access
-        let signatureData = signaturePath;
-        const minioPublic = (process.env.MINIO_PUBLIC_URL || "").replace(/\/$/, "");
-        if (minioPublic && signaturePath && signaturePath.startsWith(minioPublic)) {
-          try {
-            const { GetObjectCommand } = require("@aws-sdk/client-s3");
-            const s3Client = require("../configs/s3Client");
-            const objectPath = signaturePath.slice(minioPublic.length).replace(/^\//, "");
-            const slashIdx = objectPath.indexOf("/");
-            const bucket = slashIdx > -1 ? objectPath.slice(0, slashIdx) : (process.env.MINIO_BUCKET || "vbrm");
-            const key = slashIdx > -1 ? objectPath.slice(slashIdx + 1) : objectPath;
-            const s3Res = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-            const chunks = [];
-            for await (const chunk of s3Res.Body) chunks.push(chunk);
-            const ext = key.split(".").pop().toLowerCase();
-            const mime = ext === "png" ? "image/png" : "image/jpeg";
-            signatureData = `data:${mime};base64,${Buffer.concat(chunks).toString("base64")}`;
-          } catch (e) {
-            console.warn(`⚠️ Could not fetch signature from MinIO, using URL: ${e.message}`);
-          }
-        }
-
+        // Forward only the stored path — NOT base64 image bytes. Base64-encoding
+        // the (up to 5MB) signature inflated the packet past Socket.IO's default
+        // 1MB maxHttpBufferSize, so engine.io silently dropped the event and the
+        // manager sat on "loading" forever. The manager loads the image through
+        // the authenticated /api/image/view proxy (httpOnly cookie), exactly like
+        // AddressChange/ChangeRequestPanel already do for customer documents.
         io.to(managerSocketId).emit("customer:signature-uploaded", {
           customerId: phone,
-          signaturePath: signatureData,
+          signaturePath,
           timestamp,
           managerEmail: activeCall.currentManagerEmail
         });
@@ -3489,6 +3473,9 @@ const handleSocketConnection = async (socket, io) => {
         (user) => user.email === managerEmail
       )?.socketId;
 
+      // Notify the manager ONLY if we can currently resolve their socket. The
+      // request cleanup below must NOT depend on this — a manager whose socket
+      // id changed (reconnect/redeploy) previously left the request stuck.
       if (managerSocketId) {
         io.to(managerSocketId).emit("manager:assistance-response", {
           requestId: requestId,
@@ -3496,27 +3483,31 @@ const handleSocketConnection = async (socket, io) => {
           response: response,
           timestamp: Date.now()
         });
+      }
 
+      if (response === "accepted") {
+        // First supervisor to accept wins — stop the repeating notification,
+        // DELETE the stored request (so monitoring snapshots flip to
+        // assistanceRequested:false), and tell every admin dashboard to drop the
+        // banner. Runs unconditionally, matching the cancel/timeout paths.
+        stopAssistanceTimers(customerPhone);
         if (activeCustomerCalls[customerPhone].assistanceRequest) {
-          activeCustomerCalls[customerPhone].assistanceRequest.status = "responded";
+          delete activeCustomerCalls[customerPhone].assistanceRequest;
           touchCall(customerPhone);
         }
-
-        // First supervisor to accept wins — stop the repeating notification
-        // and tell every other admin dashboard to drop the banner.
-        if (response === "accepted") {
-          stopAssistanceTimers(customerPhone);
-          io.emit("supervisor:assistance-cancelled", {
-            requestId: requestId,
-            customerPhone,
-            reason: "accepted",
-            acceptedBy: name || email,
-            timestamp: Date.now(),
-          });
-        }
-
-        console.log(`🆘 Supervisor ${email} responded to assistance request for ${customerPhone}`);
+        io.emit("supervisor:assistance-cancelled", {
+          requestId: requestId,
+          customerPhone,
+          reason: "accepted",
+          acceptedBy: name || email,
+          timestamp: Date.now(),
+        });
+      } else if (activeCustomerCalls[customerPhone].assistanceRequest) {
+        activeCustomerCalls[customerPhone].assistanceRequest.status = "responded";
+        touchCall(customerPhone);
       }
+
+      console.log(`🆘 Supervisor ${email} responded (${response}) to assistance request for ${customerPhone}`);
     });
     // ============ END REQUEST ASSISTANCE EVENTS ============
 
@@ -4907,15 +4898,25 @@ const handleSocketConnection = async (socket, io) => {
               }
             }
 
-            const mgrSockets = await io.in(callEntry.managerSocketId).fetchSockets();
-            if (mgrSockets.length > 0) {
-              io.to(callEntry.managerSocketId).emit("call:ended", {
+            // Resolve the manager socket robustly by EMAIL — the stored
+            // managerSocketId goes stale on any manager socket.io reconnect or
+            // pod restart, and gating on fetchSockets().length>0 then silently
+            // dropped call:ended, stranding the manager on the reconnecting
+            // overlay forever. Mirror the intentional call:end path (fresh
+            // by-email lookup) and emit even if the id looks offline.
+            const mgrEmail = callEntry.currentManagerEmail;
+            const mgrSocketId = getOnlineUsersWithInfo().find(
+              (u) => u.email === mgrEmail
+            )?.socketId || callEntry.managerSocketId;
+            if (mgrSocketId) {
+              io.to(mgrSocketId).emit("call:ended", {
                 endedBy: "system",
                 reason: "customer_disconnected",
                 message: "Call ended: customer did not reconnect in time.",
                 callLogId: callEntry.callLogId || null,
                 referenceNumber: callEntry.referenceNumber || null,
               });
+              console.log(`✅ Sent call:ended to manager ${mgrEmail} (socket: ${mgrSocketId}) after customer grace expiry`);
             }
             const custSocketId = callEntry?.customerSocketId;
             if (custSocketId) {
