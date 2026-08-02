@@ -11,6 +11,7 @@ const {
 } = require("../services/customerService");
 const { generateRandomNumberBySize } = require("../utils/generateRandomNumber");
 const { statusCodes } = require("../utils/statusCodes");
+const { isCbsUpstreamError } = require("../utils/cbsFallback");
 const { createCustomerSchema } = require("../validations/customerValidations");
 
 // Ensures the account being modified actually belongs to the OTP-verified
@@ -252,6 +253,10 @@ const getCustomerImageByPhoneController = async (req, res) => {
     const profileImage = await getCustomerImageByPhone(phone);
     res.success(profileImage, " profileImage by Phone Fetched Successfully");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS profile image unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ profileImage: null, cbsUnavailable: true }, "Profile image unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };

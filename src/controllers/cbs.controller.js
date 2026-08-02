@@ -2,6 +2,7 @@ const cbsService = require("../services/cbsService");
 const { getCustomerInfoByAccountNumber } = require("../services/customerService");
 const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const { statusCodes } = require("../utils/statusCodes");
+const { isCbsUpstreamError } = require("../utils/cbsFallback");
 const { isManagerAssignedToCustomer } = require("../services/socketHandler");
 const { getClientIP } = require("../services/loggingService");
 
@@ -53,6 +54,10 @@ const lookupCustomer = async (req, res) => {
     const result = await cbsService.lookupCustomerByPhone(phone);
     res.success(result, result.found ? "Customer found" : "Customer not found");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS lookup unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ found: false, cbsUnavailable: true }, "Customer records unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };
@@ -294,6 +299,10 @@ const getAccounts = async (req, res) => {
     const accounts = await cbsService.getAccountsWithDetails(phone);
     res.success({ accounts }, "Accounts retrieved successfully");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS accounts unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ accounts: [], cbsUnavailable: true }, "Accounts unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };
@@ -318,6 +327,10 @@ const getCards = async (req, res) => {
     const cards = await cbsService.getCardsByPhone(phone);
     res.success({ cards }, "Cards retrieved successfully");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS cards unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ cards: [], cbsUnavailable: true }, "Cards unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };
@@ -342,6 +355,10 @@ const getLoans = async (req, res) => {
     const loans = await cbsService.getLoansByPhone(phone);
     res.success({ loans }, "Loans retrieved successfully");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS loans unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ loans: [], cbsUnavailable: true }, "Loans unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };
@@ -377,6 +394,10 @@ const getCustomerDetails = async (req, res) => {
 
     res.success(customer, "Customer details fetched successfully");
   } catch (error) {
+    if (isCbsUpstreamError(error)) {
+      console.error(`⚠️ CBS customer details unavailable for ${req.body.phone}: ${error.message}`);
+      return res.success({ cbsUnavailable: true }, "Customer details unavailable — CBS not reachable");
+    }
     errorResponseHandler(error, req, res);
   }
 };
