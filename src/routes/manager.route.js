@@ -7,6 +7,7 @@ const {
   resetPasswordController,
   logoutManagerController
 } = require("../controllers/manager.controller");
+const { sendOtpController } = require("../controllers/otp.controller");
 const { managerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 const {
   authRateLimiter,
@@ -34,6 +35,23 @@ const router = new Router();
  *       201: { description: Manager created }
  */
 router.post("/registration", authRateLimiter, registerManagerController);
+
+/**
+ * @swagger
+ * /manager/registration/send-otp:
+ *   post:
+ *     summary: Send the email OTP for manager (staff) self-registration
+ *     description: >
+ *       Staff-only registration OTP. Unlike the customer-facing /otp/send, this
+ *       route is NOT captcha-gated (RM onboarding is an internal, rate-limited
+ *       flow) — it is protected by authRateLimiter only.
+ *     tags: [Manager]
+ *     security: []
+ *     responses:
+ *       200: { description: OTP sent }
+ *       429: { description: Rate limited }
+ */
+router.post("/registration/send-otp", authRateLimiter, sendOtpController);
 
 /**
  * @swagger
