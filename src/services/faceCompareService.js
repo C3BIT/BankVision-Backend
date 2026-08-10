@@ -1,6 +1,6 @@
 const axios = require("axios");
 const https = require("https");
-const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_CHANNEL_ID, MINIO_ENDPOINT, MINIO_PUBLIC_URL: MINIO_PUB, MINIO_BUCKET } = require("../configs/variables");
+const { MXFACE_KEY, OPENCV_SERVICE_URL, MXFACE_API_URL, CBS_CORE_URL, CBS_URL_USER_IDENTITY, CBS_USERNAME, CBS_PASSWORD, CBS_CHANNEL_ID, MINIO_ENDPOINT, MINIO_PUBLIC_URL: MINIO_PUB, MINIO_BUCKET } = require("../configs/variables");
 // Docker-internal services (MinIO, OpenCV, MXFace) use self-signed certs in all environments
 const internalHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 const rekognition = require("../configs/rekognition");
@@ -304,15 +304,18 @@ const checkOpenCVHealth = async () => {
  */
 const compareFacesByCBS = async (accountNo, capturedImagePath) => {
   const imageBase64 = await encodeImageToBase64FromUrl(capturedImagePath);
+  // Use the v2 endpoint from config (the hardcoded /coreMiddleware/ v1 path 404s),
+  // and send Basic auth like every other CBS call (missing auth → 001 Unauthorized).
+  const identityUrl = CBS_URL_USER_IDENTITY || `${CBS_CORE_URL}/coreMiddleware-v2/cbs/getUserIdentity`;
   const response = await axios.post(
-    `${CBS_CORE_URL}/coreMiddleware/cbs/getUserIdentity`,
+    identityUrl,
     {
       accountNo,
       imageBase64,
       channelId: CBS_CHANNEL_ID || "101",
       refNo: `BV${Date.now().toString().slice(-8)}`,
     },
-    { timeout: 15000 }
+    { timeout: 15000, auth: { username: CBS_USERNAME, password: CBS_PASSWORD } }
   );
 
   const data = response.data;

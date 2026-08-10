@@ -663,12 +663,16 @@ const getPendingRequest = async (requestId) => {
 // ---------------------------------------------------------------------------
 
 const getCustomerPhoto = async (customerNo) => {
+  // CBS getCustomerPhoto expects the CIF WITHOUT the zero-padding: the 17-digit
+  // padded CIF (e.g. 00000000046006225) throws a 099 server exception, while the
+  // stripped form (46006225) returns the photo. Same de-pad the other CBS calls use.
+  const cbsCustomerNo = String(customerNo).replace(/^0+/, "") || String(customerNo);
   const data = await cbsPost(
     CBS_URL_GET_CUSTOMER_PHOTO,
     {
       refNo: refNo(),
       channelId: "102",
-      serviceRequest: { CustomerNo: customerNo },
+      serviceRequest: { CustomerNo: cbsCustomerNo },
     }
   );
   const photos = data?.serviceResponse?.Photos;
