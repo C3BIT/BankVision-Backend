@@ -667,15 +667,21 @@ const getCustomerPhoto = async (customerNo) => {
   // padded CIF (e.g. 00000000046006225) throws a 099 server exception, while the
   // stripped form (46006225) returns the photo. Same de-pad the other CBS calls use.
   const cbsCustomerNo = String(customerNo).replace(/^0+/, "") || String(customerNo);
-  const data = await cbsPost(
+  // NOTE: this endpoint returns its payload under `serviceResponse` (top-level),
+  // NOT under `data` like the cbs/* endpoints — so we can't use the generic
+  // cbsPost() helper (which returns `resp.data.data` and would drop serviceResponse).
+  const res = await axios.post(
     CBS_URL_GET_CUSTOMER_PHOTO,
     {
       refNo: refNo(),
       channelId: "102",
       serviceRequest: { CustomerNo: cbsCustomerNo },
-    }
+    },
+    { timeout: 10000, auth: { username: CBS_USERNAME, password: CBS_PASSWORD } }
   );
-  const photos = data?.serviceResponse?.Photos;
+  const body = res.data;
+  if (body.resCode !== "000") throw new Error(body.resMsg || "CBS getCustomerPhoto error");
+  const photos = body?.serviceResponse?.Photos;
   if (!photos || photos.length === 0) return null;
   const active = photos.find((p) => (p.Status || "").toUpperCase() === "ACTIVE") || photos[0];
   return active.CustomerPhotoData || null;
