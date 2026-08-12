@@ -321,8 +321,13 @@ const compareFacesByCBS = async (accountNo, capturedImagePath) => {
   const data = response.data;
   if (data.resCode !== "000") throw new Error(data.resMsg || "CBS face verification failed");
 
-  const score = parseFloat(data.data?.score ?? 0);
-  const isMatch = data.data?.isMatch === "1";
+  // CBS getUserIdentity returns the result as:
+  //   data.data.matchFoundYN = "1" (match) / "0" (no match)
+  //   data.data.percentage   = confidence, e.g. "100"
+  // (older docs referenced isMatch/score — keep them as a fallback).
+  const r = data.data || {};
+  const score = parseFloat(r.percentage ?? r.score ?? 0);
+  const isMatch = (r.matchFoundYN ?? r.isMatch) === "1";
 
   return {
     matched: isMatch,
