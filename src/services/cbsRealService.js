@@ -725,13 +725,16 @@ const getCustomerSignature = async (accountNumber) => {
 };
 
 const getUserIdentity = async (accountNumber, imageBase64) => {
+  // cbsPost returns the CBS response's `data` object. getUserIdentity reports the
+  // result as matchFoundYN ("1" = match / "0" = no match) + percentage (confidence).
+  // (Older docs referenced isMatch/score — kept as a fallback.)
   const data = await cbsPost(
     CBS_URL_USER_IDENTITY,
     { accountNo: accountNumber, imageBase64, refNo: refNo(), channelId: channelId() }
   );
   return {
-    isMatch: data.isMatch === "1",
-    score: parseFloat(data.score || "0"),
+    isMatch: (data.matchFoundYN ?? data.isMatch) === "1",
+    score: parseFloat(data.percentage ?? data.score ?? "0"),
   };
 };
 
