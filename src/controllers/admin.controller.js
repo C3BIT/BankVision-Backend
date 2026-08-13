@@ -243,7 +243,7 @@ const loginAdmin = async (req, res) => {
 const getCurrentAdmin = async (req, res) => {
   try {
     const admin = await Admin.findByPk(req.admin.id, {
-      attributes: ['id', 'name', 'email', 'role', 'profileImage']
+      attributes: ['id', 'name', 'email', 'role', 'profileImage', 'isActive']
     });
 
     if (!admin || !admin.isActive) {
