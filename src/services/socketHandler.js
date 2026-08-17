@@ -2002,6 +2002,12 @@ const handleSocketConnection = async (socket, io) => {
 
       // Cache on the active call so the approve handler can use it
       activeCustomerCalls[normalizedPhone].dormantExtraFields = data;
+      // Gate approval: the manager may only activate after the customer has
+      // explicitly submitted the request (defence-in-depth; the manager UI also
+      // enforces this).
+      if (data && data.submitted) {
+        activeCustomerCalls[normalizedPhone].dormantSubmitted = true;
+      }
       touchCall(normalizedPhone);
     });
 
@@ -3249,6 +3255,17 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      // The customer must have explicitly submitted the activation request
+      // before a manager can approve it — prevents approving while the customer
+      // is still filling in the form.
+      if (!activeCustomerCalls[customerPhone].dormantSubmitted) {
+        console.log(`⚠️ Approve blocked: customer ${customerPhone} has not submitted the dormant activation request yet`);
+        socket.emit("account:activation-error", {
+          message: "The customer has not submitted the activation request yet. Please wait for them to submit before approving.",
+        });
+        return;
+      }
+
       const { ChangeRequest } = require("../models/ChangeRequest");
       try {
         socket.emit("debug:cbs-call", {
@@ -3319,6 +3336,8 @@ const handleSocketConnection = async (socket, io) => {
           }
         );
 
+        // Consume the submission so a fresh submit is required for any re-activation.
+        activeCustomerCalls[customerPhone].dormantSubmitted = false;
         socket.emit("manager:account-activation-success", { accountNumber });
         console.log(`✅ Activation complete for customer ${customerPhone}`);
       } catch (cbsError) {
