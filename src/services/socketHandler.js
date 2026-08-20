@@ -387,15 +387,10 @@ const handleSocketConnection = async (socket, io) => {
       // Run all CBS lookups in parallel — non-blocking, proceed even if they fail
       let customerAccounts = [];
       let cbsLookup = null;
-      let isInternal = false;
-      const verificationPhoneOrEmail = verificationInfo?.phoneOrEmail || null;
 
       await Promise.allSettled([
         customerService.getAccountsListByPhone(phone).then(r => { customerAccounts = r || []; }),
         cbsService.lookupCustomerByPhone(phone).then(r => { cbsLookup = r; }),
-        verificationPhoneOrEmail && verificationInfo.method === 'phone'
-          ? customerService.getAccountsListByPhone(verificationPhoneOrEmail).then(r => { isInternal = r && r.length > 0; })
-          : Promise.resolve(),
       ]);
 
       if (customerAccounts.length > 0) {
@@ -403,9 +398,7 @@ const handleSocketConnection = async (socket, io) => {
       } else {
         console.log(`ℹ️ Customer ${phone} not found in CBS - proceeding anyway`);
       }
-      if (verificationPhoneOrEmail) {
-        console.log(`🔍 Verification ${verificationInfo.method} ${verificationPhoneOrEmail} is ${isInternal ? 'INTERNAL' : 'EXTERNAL'}`);
-      }
+      console.log(`🔍 Verified identifier ${phone} is ${customerAccounts.length > 0 ? 'INTERNAL' : 'EXTERNAL'}`);
 
       let resolvedName = name || null;
       let resolvedEmail = socket.user.customerEmail || null;
@@ -424,11 +417,15 @@ const handleSocketConnection = async (socket, io) => {
         customerEmail: resolvedEmail,
         isGuest: isGuest,
         priority: 'NORMAL',
-        verificationInfo: verificationInfo ? {
-          method: verificationInfo.method,
-          phoneOrEmail: verificationPhoneOrEmail,
-          isInternal: isInternal, // true if verification phone/email is in bank, false if external
-        } : null
+        // Identity shown to the manager is derived from the SIGNED TOKEN
+        // (socket.user.phone), never the client payload — so the RM only ever
+        // sees the number/email the customer actually OTP-verified, regardless
+        // of what the client claims in the request.
+        verificationInfo: {
+          method: String(phone).includes('@') ? 'email' : 'phone',
+          phoneOrEmail: phone,
+          isInternal: customerAccounts.length > 0,
+        },
       });
 
       if (result.success) {
