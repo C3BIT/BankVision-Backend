@@ -4,6 +4,7 @@ const OTP = require("../services/otpService");
 const { statusCodes } = require("../utils/statusCodes");
 const { jwtSecret } = require("../configs/variables");
 const { setAuthCookie } = require("../utils/cookieHelper");
+const { getCustomerSessions } = require("../utils/customerSession");
 
 // Video-KYC sessions run a phone-verify -> call -> face-compare sequence that
 // should complete well inside this window; short-lived by design since there's
@@ -118,7 +119,11 @@ const verifyPhoneOtpController = async (req, res) => {
     // in-progress call and silently breaking every request the customer
     // submits for the rest of the session (address/dormant/email included).
     if (!isChangeRequest) {
-      const token = jwt.sign({ phone, role: "customer" }, jwtSecret, {
+      // Bind the JWT to a revocable server-side session (sid + jti). issue()
+      // also revokes any previous session for this number, so a fresh OTP login
+      // invalidates the old token.
+      const { sid, jti } = await getCustomerSessions().issue(phone);
+      const token = jwt.sign({ phone, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
       });
       setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");
@@ -182,7 +187,8 @@ const verifyEmailController = async (req, res) => {
     // NOT re-issue the session under the new, not-yet-approved address — same
     // rationale as verifyPhoneOtpController.
     if (!isChangeRequest) {
-      const token = jwt.sign({ phone: emailToVerify, role: "customer" }, jwtSecret, {
+      const { sid, jti } = await getCustomerSessions().issue(emailToVerify);
+      const token = jwt.sign({ phone: emailToVerify, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
       });
       setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, "customer_auth_token");

@@ -4,6 +4,7 @@ const { jwtSecret } = require("../configs/variables.js");
 const { statusCodes } = require("../utils/statusCodes.js");
 const { getTokenFromRequest } = require("../utils/cookieHelper.js");
 const { getSession, updateSessionActivity } = require("../utils/sessionManager.js");
+const { authenticateCustomerToken } = require("../utils/customerAuth.js");
 
 const isTokenExpired = (expirationTime) =>
   expirationTime <= Math.floor(Date.now() / 1000);
@@ -88,47 +89,20 @@ const managerAuthenticateMiddleware = async (req, res, next) => {
 const customerAuthenticateMiddleware = async (req, res, next) => {
   try {
     const token = getTokenFromRequest(req, 'customer_auth_token');
-    if (!token) {
+    let auth;
+    try {
+      // Validates the signed JWT AND the revocable Redis session (the SAME
+      // implementation the socket uses). Rejects legacy stateless tokens
+      // (no sid/jti), revoked/expired sessions, and forged tokens.
+      auth = await authenticateCustomerToken(token);
+    } catch (err) {
       throw Object.assign(new Error(), {
         status: statusCodes.UNAUTHORIZED,
-        error: { code: 40116 },
+        error: { code: err.code === 'NO_TOKEN' ? 40116 : 40117 },
       });
     }
-
-    let decoded;
-    try {
-      decoded = jsonwebtoken.verify(token, jwtSecret, { algorithms: ['HS256'] });
-
-      if (isTokenExpired(decoded.exp)) {
-        throw Object.assign(new Error(), {
-          status: statusCodes.UNAUTHORIZED,
-          error: { code: 40110 },
-        });
-      }
-
-      if (decoded.role !== "customer" || !decoded.phone) {
-        throw Object.assign(new Error(), {
-          status: statusCodes.UNAUTHORIZED,
-          error: { code: 40117 },
-        });
-      }
-    } catch (error) {
-      if (error.name === "TokenExpiredError") {
-        throw Object.assign(new Error(), {
-          status: statusCodes.UNAUTHORIZED,
-          error: { code: 40110 },
-        });
-      } else if (error.status) {
-        throw error;
-      } else {
-        throw Object.assign(new Error(), {
-          status: statusCodes.UNAUTHORIZED,
-          error: { code: 40111 },
-        });
-      }
-    }
-
-    req.customerPhone = decoded.phone;
+    req.customerPhone = auth.phone;
+    req.customerSessionId = auth.sid;
     return next();
   } catch (err) {
     errorResponseHandler(err, req, res);

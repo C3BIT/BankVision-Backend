@@ -8,7 +8,7 @@
     "start": "node src/index.js",
     "seed-admin": "node src/scripts/seedAdmin.js",
     "reset-admin-password": "node src/scripts/resetAdminPassword.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test src/utils/customerSession.test.js src/utils/customerAuth.test.js"
   },
   "keywords": [],
   "author": "",
