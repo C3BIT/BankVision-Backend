@@ -11,6 +11,7 @@ const {
 } = require("../services/customerService");
 const { generateRandomNumberBySize } = require("../utils/generateRandomNumber");
 const { statusCodes } = require("../utils/statusCodes");
+const { redactAccountsForCaller } = require("../utils/accountRedaction");
 const { isCbsUpstreamError } = require("../utils/cbsFallback");
 const { createCustomerSchema } = require("../validations/customerValidations");
 
@@ -91,18 +92,12 @@ const getAccountsListByPhoneController = async (req, res) => {
     }
     const accounsList = await getAccountsListByPhone(phone);
 
-    // A customer querying a number OTHER than their own verified number only
-    // ever needs an existence signal (change-contact duplicate check). Returning
-    // the full CBS account list there turns this into a PII/account-number
-    // enumeration oracle. Redact to existence-only for that case; a customer
-    // querying their own number, and managers (trusted operators, no
-    // req.customerPhone), still receive full data.
-    if (req.customerPhone && normalizePhoneValue(phone) !== normalizePhoneValue(req.customerPhone)) {
-      const existenceOnly = (accounsList || []).map(() => ({}));
-      return res.success(existenceOnly, "Account List by Phone Fetched Successfully");
-    }
-
-    res.success(accounsList, "Account List by Phone Fetched Successfully");
+    // Explicit authorization model: the owner (querying their own number) and
+    // staff (no req.customerPhone) get the full account list; a customer
+    // querying ANOTHER number gets a bare existence boolean — no account
+    // numbers or details — which closes the account-enumeration oracle.
+    const result = redactAccountsForCaller(accounsList, req.customerPhone, phone, normalizePhoneValue);
+    res.success(result, "Account List by Phone Fetched Successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
@@ -120,15 +115,10 @@ const checkDuplicateEmailController = async (req, res) => {
     const { checkEmailExists } = require("../services/customerService");
     const existingAccounts = await checkEmailExists(email);
 
-    // As with find-phone: a customer only needs an existence signal here
-    // (duplicate-email check on a candidate address). Don't leak other accounts'
-    // details to a customer session; managers still get full data.
-    if (req.customerPhone) {
-      const existenceOnly = (existingAccounts || []).map(() => ({}));
-      return res.success(existenceOnly, "Account List by Email Fetched Successfully");
-    }
-
-    res.success(existingAccounts, "Account List by Email Fetched Successfully");
+    // Same explicit model: staff get full data; a customer (req.customerPhone
+    // set, never equal to the queried email) gets an existence boolean only.
+    const result = redactAccountsForCaller(existingAccounts, req.customerPhone, email, normalizePhoneValue);
+    res.success(result, "Account List by Email Fetched Successfully");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
