@@ -5,11 +5,28 @@ const { statusCodes } = require("../utils/statusCodes");
 const { jwtSecret } = require("../configs/variables");
 const { setAuthCookie } = require("../utils/cookieHelper");
 const { getCustomerSessions } = require("../utils/customerSession");
+const { getOtpChallenges } = require("../utils/otpChallenge");
 
 // Video-KYC sessions run a phone-verify -> call -> face-compare sequence that
 // should complete well inside this window; short-lived by design since there's
 // no logout step in the customer flow to revoke it early.
 const CUSTOMER_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+
+// Phase 2 challenge gate for the verify controllers. Verification is bound to a
+// server-issued challenge id (see utils/otpChallenge.js): the id must be present
+// AND resolve to the claimed target, or verification is rejected before any OTP
+// check. Every /otp/send response returns a challengeId for its verify to use.
+const requireOtpChallenge = async (challengeId, type, target) => {
+  const challenge = challengeId
+    ? await getOtpChallenges().resolve(challengeId, type, target)
+    : null;
+  if (!challenge) {
+    throw Object.assign(new Error("Invalid or expired verification challenge"), {
+      status: statusCodes.BAD_REQUEST,
+      error: { code: 40011 },
+    });
+  }
+};
 const sendOtpController = async (req, res) => {
   try {
     const { email, checkDuplicate } = req.body;
@@ -38,7 +55,10 @@ const sendOtpController = async (req, res) => {
 
     try {
       await OTP.sendOTP(email);
-      return res.success({ email }, "OTP sent successfully.");
+      // Phase 2: bind this send to an unguessable challenge id the client must
+      // present at verify time (see utils/otpChallenge.js).
+      const challengeId = await getOtpChallenges().issue("email", email);
+      return res.success({ email, challengeId }, "OTP sent successfully.");
     } catch (otpError) {
       // If error already has status, preserve it; otherwise set to 400
       if (!otpError.status) {
@@ -79,7 +99,10 @@ const sendPhoneOtpController = async (req, res) => {
     }
 
     await OTP.sendtPhoneOtp(phone);
-    return res.success({ phone }, "OTP sent successfully.");
+    // Phase 2: bind this send to an unguessable challenge id the client must
+    // present at verify time (see utils/otpChallenge.js).
+    const challengeId = await getOtpChallenges().issue("phone", phone);
+    return res.success({ phone, challengeId }, "OTP sent successfully.");
   } catch (error) {
     errorResponseHandler(error, req, res);
   }
@@ -87,7 +110,7 @@ const sendPhoneOtpController = async (req, res) => {
 
 const verifyPhoneOtpController = async (req, res) => {
   try {
-    const { phone, otp, isChangeRequest } = req.body;
+    const { phone, otp, isChangeRequest, challengeId } = req.body;
     if (!phone) {
       throw Object.assign(new Error("Phone number is required"), {
         status: statusCodes.BAD_REQUEST,
@@ -100,6 +123,10 @@ const verifyPhoneOtpController = async (req, res) => {
         error: { code: 40013 },
       });
     }
+
+    // Phase 2: the challenge id must resolve to THIS phone.
+    await requireOtpChallenge(challengeId, "phone", phone);
+
     const isVerified = await OTP.verifyPhoneOtp(phone, otp);
     if (!isVerified) {
       throw Object.assign(new Error("Invalid or expired OTP"), {
@@ -107,6 +134,9 @@ const verifyPhoneOtpController = async (req, res) => {
         error: { code: 40011 },
       });
     }
+
+    // OTP matched — retire the single-use challenge so it can't be replayed.
+    await getOtpChallenges().consume(challengeId);
 
     // Record server-side proof so the socket `customer:phone-verified` event can
     // require it rather than trusting the client's assertion.
@@ -137,7 +167,7 @@ const verifyPhoneOtpController = async (req, res) => {
 
 const verifyEmailController = async (req, res) => {
   try {
-    const { email, otp, phone, isChangeRequest } = req.body;
+    const { email, otp, phone, isChangeRequest, challengeId } = req.body;
 
     // Support both email and phone-based email verification
     let emailToVerify = email;
@@ -164,6 +194,10 @@ const verifyEmailController = async (req, res) => {
       });
     }
 
+    // Phase 2: same challenge binding as verify-phone, keyed on the resolved
+    // email address.
+    await requireOtpChallenge(challengeId, "email", emailToVerify);
+
     const isVerified = await OTP.verifyOTP(emailToVerify, otp);
 
     if (!isVerified) {
@@ -172,6 +206,9 @@ const verifyEmailController = async (req, res) => {
         error: { code: 40011 },
       });
     }
+
+    // OTP matched — retire the single-use challenge so it can't be replayed.
+    await getOtpChallenges().consume(challengeId);
 
     // Record server-side proof so the socket `customer:email-verified` event can
     // require it rather than trusting the client's assertion.

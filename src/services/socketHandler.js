@@ -26,6 +26,7 @@ const { Recording } = require("../models");
 const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
 const OTP = require("./otpService");
+const { getOtpChallenges } = require("../utils/otpChallenge");
 const { generateFormPDF } = require("./pdfFormService");
 const {
   publishCallSet,
@@ -1389,12 +1390,18 @@ const handleSocketConnection = async (socket, io) => {
         // Send phone OTP
         await OTP.sendtPhoneOtp(customerPhone);
 
+        // Bind this manager-initiated send to a challenge id and relay it to the
+        // customer so their verify carries it (Phase 2 — the OTP slot can only be
+        // addressed via this server-issued challenge, not by phone number alone).
+        const challengeId = await getOtpChallenges().issue("phone", customerPhone);
+
         // Notify customer to open OTP modal
         io.to(customerSocketId).emit("requested:phone-verification", {
           message: "Manager has requested phone verification",
           managerId: email,
           managerName: name || null,
-          phone: customerPhone
+          phone: customerPhone,
+          challengeId
         });
 
         // Also notify manager that it's sent (for UI sync)
@@ -1531,13 +1538,19 @@ const handleSocketConnection = async (socket, io) => {
         // Send email OTP
         await OTP.sendOTP(customerEmail);
 
+        // Bind this manager-initiated send to a challenge id and relay it to the
+        // customer so their verify carries it (Phase 2 — same rationale as the
+        // phone verification-request handler above).
+        const challengeId = await getOtpChallenges().issue("email", customerEmail);
+
         // Notify customer (modal trigger)
         io.to(customerSocketId).emit("requested:email-verification", {
           message: "Manager has requested email verification",
           managerId: email,
           managerName: name || null,
           email: customerEmail,
-          customerEmail: customerEmail // Send both for compatibility
+          customerEmail: customerEmail, // Send both for compatibility
+          challengeId
         });
 
         // Notify manager (sync)
