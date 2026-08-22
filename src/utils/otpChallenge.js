@@ -16,6 +16,10 @@ const crypto = require("crypto");
 
 const CHALLENGE_TTL = 180; // seconds — matches OTP_EXPIRY_TIME
 const CHALLENGE_PREFIX = "otpchal:";
+// Hard cap on wrong OTP attempts against a single challenge (Rizwan #14). This
+// is per-challenge and complements the per-phone lockout in otpService — a
+// challenge is burned after this many misses regardless of the phone counter.
+const MAX_CHALLENGE_ATTEMPTS = 5;
 
 // Same canonicalization the rest of the OTP layer uses so a challenge issued
 // from one phone format resolves against another (e.g. +880 vs local 0-prefixed).
@@ -32,6 +36,8 @@ const normalizeTarget = (type, value) => {
 function createOtpChallengeManager(cache, deps = {}) {
   const genId = deps.genId || (() => crypto.randomUUID());
   const ttl = deps.ttl || CHALLENGE_TTL;
+  const maxAttempts = deps.maxAttempts || MAX_CHALLENGE_ATTEMPTS;
+  const attemptsKey = (id) => `${CHALLENGE_PREFIX}attempts:${id}`;
 
   const issue = async (type, target) => {
     const challengeId = genId();
@@ -59,9 +65,25 @@ function createOtpChallengeManager(cache, deps = {}) {
   const consume = async (challengeId) => {
     if (!challengeId) return;
     await cache.del(CHALLENGE_PREFIX + challengeId);
+    await cache.del(attemptsKey(challengeId));
   };
 
-  return { issue, resolve, consume };
+  // Increments the wrong-OTP counter for this challenge. On reaching the cap the
+  // challenge is burned (deleted) so it can't be retried further — the user must
+  // request a fresh OTP. No-op for a missing id.
+  const recordFailedAttempt = async (challengeId) => {
+    if (!challengeId) return { attempts: 0, exceeded: false };
+    const attempts = (Number(await cache.get(attemptsKey(challengeId))) || 0) + 1;
+    if (attempts >= maxAttempts) {
+      await cache.del(CHALLENGE_PREFIX + challengeId);
+      await cache.del(attemptsKey(challengeId));
+      return { attempts, exceeded: true };
+    }
+    await cache.set(attemptsKey(challengeId), attempts, ttl);
+    return { attempts, exceeded: false };
+  };
+
+  return { issue, resolve, consume, recordFailedAttempt };
 }
 
 // Lazily bound to the shared otpCache so unit tests can inject a fake cache

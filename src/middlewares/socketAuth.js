@@ -42,16 +42,16 @@ const socketAuthMiddleware = async (socket, next) => {
         role = decoded.role === 'supervisor' ? 'supervisor' : 'admin';
       }
 
-      // Customers must have a valid, non-revoked server-side session (parity
-      // with the HTTP middleware). Legacy stateless tokens (no sid/jti) and
-      // revoked/expired sessions are rejected here too.
+      // Customers go through the SAME implementation as the HTTP middleware
+      // (authenticateCustomerToken) so the two can never drift: it re-verifies
+      // the signed JWT AND the revocable Redis session, rejecting legacy
+      // stateless tokens (no sid/jti) and revoked/expired sessions.
       if (role === 'customer') {
-        const { getCustomerSessions } = require('../utils/customerSession');
-        const session = (decoded.sid && decoded.jti)
-          ? await getCustomerSessions().validate(decoded.sid, decoded.jti)
-          : null;
-        if (!session) {
-          console.log('🚨 Socket auth rejected — customer session revoked/expired/invalid');
+        const { authenticateCustomerToken } = require('../utils/customerAuth');
+        try {
+          await authenticateCustomerToken(token);
+        } catch (err) {
+          console.log('🚨 Socket auth rejected — customer session invalid:', err.code || err.message);
           return next(new Error("Authentication failed: session expired or invalid. Please verify again."));
         }
       }

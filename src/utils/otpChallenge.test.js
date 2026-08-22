@@ -68,3 +68,39 @@ test('normalizeTarget lowercases/trims email and canonicalizes phone', () => {
   assert.strictEqual(normalizeTarget('email', '  A@Example.com '), 'a@example.com');
   assert.strictEqual(normalizeTarget('phone', '+8801711111111'), '01711111111');
 });
+
+test('recordFailedAttempt increments the per-challenge attempt count', async () => {
+  const cache = fakeCache();
+  const mgr = createOtpChallengeManager(cache, { ...deps(), maxAttempts: 3 });
+  const id = await mgr.issue('phone', '01711111111');
+  assert.deepStrictEqual(await mgr.recordFailedAttempt(id), { attempts: 1, exceeded: false });
+  assert.deepStrictEqual(await mgr.recordFailedAttempt(id), { attempts: 2, exceeded: false });
+});
+
+test('reaching maxAttempts burns the challenge (resolve → null afterwards)', async () => {
+  const cache = fakeCache();
+  const mgr = createOtpChallengeManager(cache, { ...deps(), maxAttempts: 3 });
+  const id = await mgr.issue('phone', '01711111111');
+  await mgr.recordFailedAttempt(id); // 1
+  await mgr.recordFailedAttempt(id); // 2
+  const third = await mgr.recordFailedAttempt(id); // 3 → exceeded
+  assert.strictEqual(third.exceeded, true);
+  assert.strictEqual(await mgr.resolve(id, 'phone', '01711111111'), null);
+});
+
+test('recordFailedAttempt on an unknown/absent challenge id is a safe no-op', async () => {
+  const cache = fakeCache();
+  const mgr = createOtpChallengeManager(cache, deps());
+  assert.deepStrictEqual(await mgr.recordFailedAttempt(''), { attempts: 0, exceeded: false });
+  assert.deepStrictEqual(await mgr.recordFailedAttempt(undefined), { attempts: 0, exceeded: false });
+});
+
+test('consume clears the attempt counter too', async () => {
+  const cache = fakeCache();
+  const mgr = createOtpChallengeManager(cache, { ...deps(), maxAttempts: 3 });
+  const id = await mgr.issue('email', 'a@b.com');
+  await mgr.recordFailedAttempt(id);
+  await mgr.consume(id);
+  // A fresh count starts from zero after consume.
+  assert.deepStrictEqual(await mgr.recordFailedAttempt(id), { attempts: 1, exceeded: false });
+});

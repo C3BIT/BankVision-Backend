@@ -6,6 +6,24 @@ const { jwtSecret } = require("../configs/variables");
 const { setAuthCookie } = require("../utils/cookieHelper");
 const { getCustomerSessions } = require("../utils/customerSession");
 const { getOtpChallenges } = require("../utils/otpChallenge");
+const { getVerificationGrants } = require("../utils/verificationGrant");
+
+// Mints a purpose-bound, single-use verification grant when a change flow's OTP
+// verify succeeds (Phase 3). The sensitive change handler later consumes it
+// before touching CBS, so faking the verify response can't complete the change.
+// An unknown purpose is rejected rather than silently skipped (a skipped grant
+// would block the legitimate approval).
+const issueVerificationGrantIfRequested = async (purpose, value) => {
+  if (!purpose) return;
+  const grants = getVerificationGrants();
+  if (!grants.isValidPurpose(purpose)) {
+    throw Object.assign(new Error("Unknown verification purpose"), {
+      status: statusCodes.BAD_REQUEST,
+      error: { code: 40011 },
+    });
+  }
+  await grants.grant(purpose, value);
+};
 
 // Video-KYC sessions run a phone-verify -> call -> face-compare sequence that
 // should complete well inside this window; short-lived by design since there's
@@ -110,7 +128,7 @@ const sendPhoneOtpController = async (req, res) => {
 
 const verifyPhoneOtpController = async (req, res) => {
   try {
-    const { phone, otp, isChangeRequest, challengeId } = req.body;
+    const { phone, otp, isChangeRequest, challengeId, purpose } = req.body;
     if (!phone) {
       throw Object.assign(new Error("Phone number is required"), {
         status: statusCodes.BAD_REQUEST,
@@ -129,6 +147,8 @@ const verifyPhoneOtpController = async (req, res) => {
 
     const isVerified = await OTP.verifyPhoneOtp(phone, otp);
     if (!isVerified) {
+      // Per-challenge attempt cap (#14) — burns the challenge after too many misses.
+      await getOtpChallenges().recordFailedAttempt(challengeId);
       throw Object.assign(new Error("Invalid or expired OTP"), {
         status: statusCodes.BAD_REQUEST,
         error: { code: 40011 },
@@ -141,6 +161,10 @@ const verifyPhoneOtpController = async (req, res) => {
     // Record server-side proof so the socket `customer:phone-verified` event can
     // require it rather than trusting the client's assertion.
     await OTP.markContactVerified("phone", phone);
+
+    // Phase 3: for a change flow, mint the purpose-bound grant the CBS-write
+    // handler will require (e.g. CHANGE_PHONE bound to this new number).
+    await issueVerificationGrantIfRequested(purpose, phone);
 
     // A mid-call "change phone" verification proves ownership of the NEW,
     // not-yet-manager-approved number — it must not re-issue the session
@@ -167,7 +191,7 @@ const verifyPhoneOtpController = async (req, res) => {
 
 const verifyEmailController = async (req, res) => {
   try {
-    const { email, otp, phone, isChangeRequest, challengeId } = req.body;
+    const { email, otp, phone, isChangeRequest, challengeId, purpose } = req.body;
 
     // Support both email and phone-based email verification
     let emailToVerify = email;
@@ -201,6 +225,8 @@ const verifyEmailController = async (req, res) => {
     const isVerified = await OTP.verifyOTP(emailToVerify, otp);
 
     if (!isVerified) {
+      // Per-challenge attempt cap (#14) — burns the challenge after too many misses.
+      await getOtpChallenges().recordFailedAttempt(challengeId);
       throw Object.assign(new Error("Invalid or expired OTP"), {
         status: statusCodes.BAD_REQUEST,
         error: { code: 40011 },
@@ -213,6 +239,10 @@ const verifyEmailController = async (req, res) => {
     // Record server-side proof so the socket `customer:email-verified` event can
     // require it rather than trusting the client's assertion.
     await OTP.markContactVerified("email", emailToVerify);
+
+    // Phase 3: for a change flow, mint the purpose-bound grant the CBS-write
+    // handler will require (e.g. CHANGE_EMAIL bound to this new address).
+    await issueVerificationGrantIfRequested(purpose, emailToVerify);
 
     // Email is a standalone entry method (StartVerification lets the customer
     // choose phone OR email), so it must mint the same short-lived session the

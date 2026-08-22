@@ -27,6 +27,7 @@ const faceVerificationService = require("./faceVerificationService");
 const { updateSessionSocketId } = require("../utils/sessionManager");
 const OTP = require("./otpService");
 const { getOtpChallenges } = require("../utils/otpChallenge");
+const { getVerificationGrants, PURPOSES } = require("../utils/verificationGrant");
 const { generateFormPDF } = require("./pdfFormService");
 const {
   publishCallSet,
@@ -2970,6 +2971,18 @@ const handleSocketConnection = async (socket, io) => {
         return;
       }
 
+      // Phase 3: require a single-use, purpose-bound verification grant proving the
+      // new value was actually OTP-verified for THIS change. Without it the CBS
+      // write is refused — so faking the /otp/verify response (or emitting this
+      // event directly) cannot mutate a customer's contact record.
+      const changePurpose = changeType === "email" ? PURPOSES.CHANGE_EMAIL : PURPOSES.CHANGE_PHONE;
+      const grantOk = await getVerificationGrants().consume(changePurpose, newValue);
+      if (!grantOk) {
+        console.warn(`🚫 approve-change blocked — no verification grant for ${changeType} → ${newValue}`);
+        socket.emit("call:error", { message: "OTP verification required before this change can be approved." });
+        return;
+      }
+
       try {
         const accountNumber = activeCustomerCalls[normalizedCustomerId].customerAccountNumber
           || activeCustomerCalls[normalizedCustomerId].accountNumber;
@@ -3119,6 +3132,16 @@ const handleSocketConnection = async (socket, io) => {
       if (activeCustomerCalls[normalizedCustomerId].currentManagerEmail !== email) {
         console.warn(`🚫 approve-address-change blocked — ${email} is not the assigned manager for ${normalizedCustomerId}`);
         socket.emit("call:error", { message: "You are not the manager handling this call." });
+        return;
+      }
+
+      // Phase 3: address change is authorized by an OTP sent to the customer's
+      // phone, so require the CHANGE_ADDRESS grant bound to that phone before the
+      // CBS write (see approve-change for rationale).
+      const addrGrantOk = await getVerificationGrants().consume(PURPOSES.CHANGE_ADDRESS, normalizedCustomerId);
+      if (!addrGrantOk) {
+        console.warn(`🚫 approve-address-change blocked — no verification grant for ${normalizedCustomerId}`);
+        socket.emit("call:error", { message: "OTP verification required before this change can be approved." });
         return;
       }
 
