@@ -6,6 +6,7 @@ const { getTokenFromRequest } = require("../utils/cookieHelper");
 const { statusCodes } = require("../utils/statusCodes");
 const { authenticateCustomerToken } = require("../utils/customerAuth");
 const { normalizePhone } = require("../utils/phone");
+const { getSession } = require("../utils/sessionManager");
 const router = express.Router();
 
 // OpenVidu/LiveKit configuration — must be set via environment variables
@@ -42,10 +43,15 @@ const authenticateRoomRequester = async (req, res, next) => {
     }
   }
 
-  // Staff path (manager / admin): a validly-signed staff session cookie.
-  const staffToken =
-    getTokenFromRequest(req, "manager_auth_token") ||
-    getTokenFromRequest(req, "admin_auth_token");
+  // Staff path (manager / admin): a validly-signed staff session cookie,
+  // enforced against the SAME revocable Redis session that
+  // managerAuthenticateMiddleware / adminAuthenticateMiddleware require
+  // everywhere else. Previously this was bare jwt.verify — a manager/admin
+  // who logged out, was superseded by a login elsewhere, or was force-revoked
+  // could still mint a live LiveKit token with the old JWT until it expired.
+  const managerToken = getTokenFromRequest(req, "manager_auth_token");
+  const adminToken = getTokenFromRequest(req, "admin_auth_token");
+  const staffToken = managerToken || adminToken;
   if (!staffToken) {
     return res.status(statusCodes.UNAUTHORIZED).json({
       success: false,
@@ -54,6 +60,16 @@ const authenticateRoomRequester = async (req, res, next) => {
   }
   try {
     const decoded = jwt.verify(staffToken, jwtSecret, { algorithms: ["HS256"] });
+    if (managerToken && decoded.role !== "manager") {
+      throw new Error("role_mismatch");
+    }
+    if (adminToken && decoded.type !== "admin") {
+      throw new Error("role_mismatch");
+    }
+    const session = await getSession(decoded.id);
+    if (!session || session.token !== staffToken) {
+      throw new Error("session_revoked");
+    }
     req.roomRequester = decoded;
     return next();
   } catch (_err) {

@@ -1331,7 +1331,12 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:phone-verification", async (data) => {
       if (role !== "manager") return;
 
-      let rawCustomerPhone = socket.user.customerPhone || data.customerPhone;
+      // Never trust data.customerPhone here — it would let any manager target
+      // another manager's in-progress call. The customer is always the one
+      // bound to THIS manager's own active call (socket.user.customerPhone,
+      // set server-side by queue:pick-call), with a same-owner scan as a
+      // fallback for a socket that reconnected without that field restored.
+      let rawCustomerPhone = socket.user.customerPhone;
 
       if (!rawCustomerPhone) {
         const activeCallKey = Object.keys(activeCustomerCalls).find(
@@ -1345,6 +1350,11 @@ const handleSocketConnection = async (socket, io) => {
 
       const customerPhone = normalizePhone(rawCustomerPhone);
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
+        return socket.emit("call:error", {
+          message: "No active call with customer found.",
+        });
+      }
+      if (activeCustomerCalls[customerPhone].currentManagerEmail !== email) {
         return socket.emit("call:error", {
           message: "No active call with customer found.",
         });
@@ -1465,7 +1475,9 @@ const handleSocketConnection = async (socket, io) => {
     socket.on("request:email-verification", async (data) => {
       if (role !== "manager") return;
 
-      let rawCustomerPhone = socket.user.customerPhone || data.customerPhone;
+      // See request:phone-verification above — data.customerPhone must never
+      // be trusted as the target; it must be THIS manager's own active call.
+      let rawCustomerPhone = socket.user.customerPhone;
 
       if (!rawCustomerPhone) {
         const activeCallKey = Object.keys(activeCustomerCalls).find(
@@ -1486,6 +1498,12 @@ const handleSocketConnection = async (socket, io) => {
 
       if (!customerPhone || !activeCustomerCalls[customerPhone]) {
         console.log(`⚠️ No active call found for customer ${customerPhone}`);
+        return socket.emit("call:error", {
+          message: "No active call with customer",
+        });
+      }
+      if (activeCustomerCalls[customerPhone].currentManagerEmail !== email) {
+        console.log(`⚠️ Manager ${email} is not the owner of the active call for ${customerPhone}`);
         return socket.emit("call:error", {
           message: "No active call with customer",
         });
