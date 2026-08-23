@@ -9,17 +9,31 @@ const { authenticateCustomerToken } = require("../utils/customerAuth");
 const { getOtpChallenges } = require("../utils/otpChallenge");
 const { getVerificationGrants } = require("../utils/verificationGrant");
 
-// Session-confusion defense (NID-style): a fresh customer login burns whatever
-// customer session the request was CARRYING, so "log in as B while holding A's
-// cookie" invalidates A's session too — the held cookie becomes a dead pointer.
-// Abuse-safe: this can only revoke a session whose token the caller already
-// presents (no lever to kill a stranger's session).
-const revokeCarriedCustomerSession = async (req) => {
+const normalizeIdentity = (v) => {
+  const s = String(v || "").trim().toLowerCase();
+  if (s.includes("@")) return s;
+  let c = s.replace(/\D/g, "");
+  if (c.startsWith("880") && c.length > 10) c = c.substring(3);
+  if (c.startsWith("1") && c.length === 10) c = "0" + c;
+  return c;
+};
+
+// Session-confusion defense (NID-style): if a login request CARRIES a valid
+// customer session for a DIFFERENT identity than the one being verified, revoke
+// that carried session immediately — an identity switch is anomalous and must
+// not leave the prior session alive, whether this OTP ultimately succeeds OR
+// FAILS (a wrong-OTP attempt as B while holding A's cookie still burns A). A
+// normal re-verify of the SAME identity is left untouched (issue() rotates it on
+// success). Abuse-safe: only ever revokes a session whose token the caller
+// already presents, so it can't be used to kill a stranger's session.
+const revokeCarriedSessionOnIdentitySwitch = async (req, attemptedIdentity) => {
   const carried = getTokenFromRequest(req, "customer_auth_token");
   if (!carried) return;
   try {
     const prev = await authenticateCustomerToken(carried);
-    await getCustomerSessions().revoke(prev.sid);
+    if (normalizeIdentity(prev.phone) !== normalizeIdentity(attemptedIdentity)) {
+      await getCustomerSessions().revoke(prev.sid);
+    }
   } catch (_e) {
     /* no valid prior session on the request — nothing to revoke */
   }
@@ -159,6 +173,15 @@ const verifyPhoneOtpController = async (req, res) => {
       });
     }
 
+    // Session-confusion defense: a login attempt for a DIFFERENT identity while
+    // carrying a session revokes that session NOW — before the OTP is even
+    // checked — so a wrong-OTP "log in as B" while holding A's cookie still kills
+    // A. Skipped for the in-call change flow (isChangeRequest verifies a new
+    // value for the SAME logged-in customer).
+    if (!isChangeRequest) {
+      await revokeCarriedSessionOnIdentitySwitch(req, phone);
+    }
+
     // Phase 2: the challenge id must resolve to THIS phone.
     await requireOtpChallenge(challengeId, "phone", phone);
 
@@ -192,10 +215,8 @@ const verifyPhoneOtpController = async (req, res) => {
     if (!isChangeRequest) {
       // Bind the JWT to a revocable server-side session (sid + jti). issue()
       // also revokes any previous session for this number, so a fresh OTP login
-      // invalidates the old token.
-      // Burn any customer session the request was carrying before issuing the
-      // new one (kills a held A-session when logging in as B).
-      await revokeCarriedCustomerSession(req);
+      // invalidates the old token. (A carried session for a DIFFERENT identity
+      // was already revoked above, before the OTP check.)
       const { sid, jti } = await getCustomerSessions().issue(phone);
       const token = jwt.sign({ phone, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
@@ -238,6 +259,13 @@ const verifyEmailController = async (req, res) => {
       });
     }
 
+    // Session-confusion defense (see verify-phone): an identity switch while
+    // carrying a session revokes it now, even on a wrong OTP. Not for the in-call
+    // change flow.
+    if (!isChangeRequest) {
+      await revokeCarriedSessionOnIdentitySwitch(req, emailToVerify);
+    }
+
     // Phase 2: same challenge binding as verify-phone, keyed on the resolved
     // email address.
     await requireOtpChallenge(challengeId, "email", emailToVerify);
@@ -274,9 +302,7 @@ const verifyEmailController = async (req, res) => {
     // NOT re-issue the session under the new, not-yet-approved address — same
     // rationale as verifyPhoneOtpController.
     if (!isChangeRequest) {
-      // Burn any customer session the request was carrying before issuing the
-      // new one (kills a held A-session when logging in as B).
-      await revokeCarriedCustomerSession(req);
+      // (A carried session for a DIFFERENT identity was already revoked above.)
       const { sid, jti } = await getCustomerSessions().issue(emailToVerify);
       const token = jwt.sign({ phone: emailToVerify, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
