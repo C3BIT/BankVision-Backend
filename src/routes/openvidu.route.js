@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { jwtSecret } = require("../configs/variables");
 const { getTokenFromRequest } = require("../utils/cookieHelper");
 const { statusCodes } = require("../utils/statusCodes");
+const { authenticateCustomerToken } = require("../utils/customerAuth");
 const router = express.Router();
 
 // OpenVidu/LiveKit configuration — must be set via environment variables
@@ -20,19 +21,38 @@ if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
 // cookies (customer / manager / admin), and — for customers — additionally
 // bind the token to their OWN room so one verified customer can't join
 // another's call.
-const authenticateRoomRequester = (req, res, next) => {
-  const raw =
-    getTokenFromRequest(req, "customer_auth_token") ||
+const authenticateRoomRequester = async (req, res, next) => {
+  // Customer path: validate the token against the revocable Redis session
+  // (identical check to the HTTP middleware and the socket) — NOT raw
+  // jwt.verify. This closes the one place a signed-but-REVOKED/expired customer
+  // session could still mint a media token: a killed session (new OTP login,
+  // logout, or manual revoke) can no longer obtain a LiveKit token.
+  const customerToken = getTokenFromRequest(req, "customer_auth_token");
+  if (customerToken) {
+    try {
+      const auth = await authenticateCustomerToken(customerToken);
+      req.roomRequester = { role: "customer", phone: auth.phone, sid: auth.sid };
+      return next();
+    } catch (_err) {
+      return res.status(statusCodes.UNAUTHORIZED).json({
+        success: false,
+        message: "Invalid or expired session",
+      });
+    }
+  }
+
+  // Staff path (manager / admin): a validly-signed staff session cookie.
+  const staffToken =
     getTokenFromRequest(req, "manager_auth_token") ||
     getTokenFromRequest(req, "admin_auth_token");
-  if (!raw) {
+  if (!staffToken) {
     return res.status(statusCodes.UNAUTHORIZED).json({
       success: false,
       message: "Authentication required",
     });
   }
   try {
-    const decoded = jwt.verify(raw, jwtSecret, { algorithms: ["HS256"] });
+    const decoded = jwt.verify(staffToken, jwtSecret, { algorithms: ["HS256"] });
     req.roomRequester = decoded;
     return next();
   } catch (_err) {
