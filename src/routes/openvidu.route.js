@@ -27,19 +27,27 @@ const authenticateRoomRequester = async (req, res, next) => {
   // Customer path: validate the token against the revocable Redis session
   // (identical check to the HTTP middleware and the socket) — NOT raw
   // jwt.verify. This closes the one place a signed-but-REVOKED/expired customer
-  // session could still mint a media token: a killed session (new OTP login,
-  // logout, or manual revoke) can no longer obtain a LiveKit token.
+  // session could still mint a media token.
+  //
+  // It is taken ONLY when a valid customer session is authorized for the
+  // requested room. It must FALL THROUGH to the staff check (not 401) when it
+  // isn't, because a manager/admin browser on the shared parent domain can also
+  // carry a customer_auth_token cookie, and getTokenFromRequest returns an
+  // Authorization-header token regardless of the cookie name — so a staff
+  // request can land here with a customer token that fails the customer check.
+  // 401ing here (the old behaviour) blocked managers from ever minting a token,
+  // so they never joined the call ("Remote participants: 0" + reconnect loop).
   const customerToken = getTokenFromRequest(req, "customer_auth_token");
   if (customerToken) {
     try {
       const auth = await authenticateCustomerToken(customerToken);
-      req.roomRequester = { role: "customer", phone: auth.phone, sid: auth.sid };
-      return next();
+      if (requesterMayJoinRoom({ role: "customer", phone: auth.phone }, req.body?.roomName)) {
+        req.roomRequester = { role: "customer", phone: auth.phone, sid: auth.sid };
+        return next();
+      }
+      // valid customer, but not for this room → maybe a staff request; fall through
     } catch (_err) {
-      return res.status(statusCodes.UNAUTHORIZED).json({
-        success: false,
-        message: "Invalid or expired session",
-      });
+      // not a valid customer session → fall through to the staff check
     }
   }
 
