@@ -3,10 +3,27 @@ const { errorResponseHandler } = require("../middlewares/errorResponseHandler");
 const OTP = require("../services/otpService");
 const { statusCodes } = require("../utils/statusCodes");
 const { jwtSecret } = require("../configs/variables");
-const { setAuthCookie } = require("../utils/cookieHelper");
+const { setAuthCookie, getTokenFromRequest } = require("../utils/cookieHelper");
 const { getCustomerSessions } = require("../utils/customerSession");
+const { authenticateCustomerToken } = require("../utils/customerAuth");
 const { getOtpChallenges } = require("../utils/otpChallenge");
 const { getVerificationGrants } = require("../utils/verificationGrant");
+
+// Session-confusion defense (NID-style): a fresh customer login burns whatever
+// customer session the request was CARRYING, so "log in as B while holding A's
+// cookie" invalidates A's session too — the held cookie becomes a dead pointer.
+// Abuse-safe: this can only revoke a session whose token the caller already
+// presents (no lever to kill a stranger's session).
+const revokeCarriedCustomerSession = async (req) => {
+  const carried = getTokenFromRequest(req, "customer_auth_token");
+  if (!carried) return;
+  try {
+    const prev = await authenticateCustomerToken(carried);
+    await getCustomerSessions().revoke(prev.sid);
+  } catch (_e) {
+    /* no valid prior session on the request — nothing to revoke */
+  }
+};
 
 // Mints a purpose-bound, single-use verification grant when a change flow's OTP
 // verify succeeds (Phase 3). The sensitive change handler later consumes it
@@ -176,6 +193,9 @@ const verifyPhoneOtpController = async (req, res) => {
       // Bind the JWT to a revocable server-side session (sid + jti). issue()
       // also revokes any previous session for this number, so a fresh OTP login
       // invalidates the old token.
+      // Burn any customer session the request was carrying before issuing the
+      // new one (kills a held A-session when logging in as B).
+      await revokeCarriedCustomerSession(req);
       const { sid, jti } = await getCustomerSessions().issue(phone);
       const token = jwt.sign({ phone, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
@@ -254,6 +274,9 @@ const verifyEmailController = async (req, res) => {
     // NOT re-issue the session under the new, not-yet-approved address — same
     // rationale as verifyPhoneOtpController.
     if (!isChangeRequest) {
+      // Burn any customer session the request was carrying before issuing the
+      // new one (kills a held A-session when logging in as B).
+      await revokeCarriedCustomerSession(req);
       const { sid, jti } = await getCustomerSessions().issue(emailToVerify);
       const token = jwt.sign({ phone: emailToVerify, role: "customer", sid, jti }, jwtSecret, {
         expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
