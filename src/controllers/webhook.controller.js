@@ -26,6 +26,25 @@ const handleLiveKitWebhook = async (req, res) => {
             status: event.egressInfo?.status
         });
 
+        // Call truly ended (LiveKit only fires this when the room actually
+        // closes — never on a transient reconnect). Revoke the customer's
+        // session so a leftover/copied token can't start a NEW call as them
+        // after the call is over (closes the post-call token-reuse window).
+        if (event.event === 'room_finished') {
+            const roomName = event.room?.name || '';
+            // Rooms are named room_<customerPhone>_<timestamp> (socketHandler).
+            const m = String(roomName).match(/^room_(\d+)_/);
+            if (m) {
+                try {
+                    const { getCustomerSessions } = require('../utils/customerSession');
+                    const revoked = await getCustomerSessions().revokeByPhone(m[1]);
+                    console.log(`🔒 room_finished ${roomName} → customer session revoked for ${m[1]}: ${revoked}`);
+                } catch (err) {
+                    console.error(`⚠️ room_finished session revoke failed for ${roomName}:`, err.message);
+                }
+            }
+        }
+
         // Handle Egress events
         if (event.event === 'egress_started') {
             const { egressId, roomName } = event.egressInfo;

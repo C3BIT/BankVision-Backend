@@ -17,9 +17,23 @@ const SESSION_PREFIX = 'customer:session:';
 const PHONE_INDEX_PREFIX = 'customer:session:phone:';
 const DEFAULT_TTL_SECONDS = 30 * 60; // matches the customer JWT lifetime
 
+// Canonicalize the identity used for the phone index so the key is
+// format-independent: a phone/email verified as one format and revoked by
+// another equivalent format (e.g. the room_finished webhook using the
+// room-name phone) still resolves to the same session. Emails → lowercased;
+// phones → digits with the BD country code dropped and a single leading 0.
+const normalizeIndexKey = (value) => {
+  const s = String(value || '').trim().toLowerCase();
+  if (s.includes('@')) return s;
+  let c = s.replace(/\D/g, '');
+  if (c.startsWith('880') && c.length > 10) c = c.substring(3);
+  if (c.startsWith('1') && c.length === 10) c = '0' + c;
+  return c;
+};
+
 const createCustomerSessionManager = (redis, ttlSeconds = DEFAULT_TTL_SECONDS) => {
   const sessionKey = (sid) => `${SESSION_PREFIX}${sid}`;
-  const phoneKey = (phone) => `${PHONE_INDEX_PREFIX}${phone}`;
+  const phoneKey = (phone) => `${PHONE_INDEX_PREFIX}${normalizeIndexKey(phone)}`;
 
   const revoke = async (sid) => {
     if (!sid) return false;

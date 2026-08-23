@@ -56,3 +56,12 @@ test('two different phones keep independent sessions', async () => {
   assert.ok(await mgr.validate(a.sid, a.jti), 'phone A still valid');
   assert.ok(await mgr.validate(b.sid, b.jti), 'phone B valid');
 });
+
+test('revokeByPhone matches regardless of phone format (normalized key)', async () => {
+  const mgr = createCustomerSessionManager(fakeRedis());
+  const { sid, jti } = await mgr.issue('+8801711111111');
+  // The room_finished webhook revokes by the room-name phone, which may be a
+  // differently-formatted-but-equivalent number — it must still match.
+  assert.strictEqual(await mgr.revokeByPhone('01711111111'), true);
+  assert.strictEqual(await mgr.validate(sid, jti), null, 'session revoked');
+});
