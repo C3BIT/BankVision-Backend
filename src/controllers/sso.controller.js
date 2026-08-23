@@ -4,6 +4,7 @@ const { errorResponseHandler } = require('../middlewares/errorResponseHandler');
 const { statusCodes } = require('../utils/statusCodes');
 const { jwtSecret } = require('../configs/variables');
 const { setAuthCookie } = require('../utils/cookieHelper');
+const { getCustomerSessions } = require('../utils/customerSession');
 const { rsaDecrypt } = require('../utils/rsaHelper');
 const { redisClient } = require('../configs/redis');
 const { getAccountsListByPhone } = require('../services/customerService');
@@ -82,7 +83,14 @@ const authenticateMtbNeo = async (req, res) => {
       return fail(req, res, statusCodes.UNAUTHORIZED, 'cbs_mismatch');
     }
 
-    const token = jwt.sign({ phone: custMob, role: 'customer' }, jwtSecret, {
+    // Bind the JWT to a revocable server-side session (sid + jti), exactly as
+    // otp.controller does after OTP. Without this the SSO cookie was a stateless
+    // token with no sid/jti — authenticateCustomerToken rejects those
+    // (NO_SESSION_CLAIMS), so the cookie could never pass the HTTP/socket/LiveKit
+    // gates. issue() also revokes any prior session for this number, so the SSO
+    // handoff supersedes an older login rather than running beside it.
+    const { sid, jti } = await getCustomerSessions().issue(custMob);
+    const token = jwt.sign({ phone: custMob, role: 'customer', sid, jti }, jwtSecret, {
       expiresIn: `${CUSTOMER_SESSION_MAX_AGE_MS / 1000}s`,
     });
     setAuthCookie(res, token, CUSTOMER_SESSION_MAX_AGE_MS, 'customer_auth_token');

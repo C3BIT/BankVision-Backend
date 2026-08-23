@@ -5,6 +5,7 @@ const { jwtSecret } = require("../configs/variables");
 const { getTokenFromRequest } = require("../utils/cookieHelper");
 const { statusCodes } = require("../utils/statusCodes");
 const { authenticateCustomerToken } = require("../utils/customerAuth");
+const { normalizePhone } = require("../utils/phone");
 const router = express.Router();
 
 // OpenVidu/LiveKit configuration — must be set via environment variables
@@ -64,16 +65,28 @@ const authenticateRoomRequester = async (req, res, next) => {
 };
 
 // A customer may only receive a token for a room named after their own
-// OTP-verified phone (room naming: room_<customerPhone>_<timestamp>, see
-// socketHandler). Staff (manager/admin/supervisor) are trusted to join any
-// room they are handling.
+// OTP-verified identity. Rooms are server-authored as `room_<id>_<timestamp>`
+// (see socketHandler), where <id> is normalizePhone(customerPhone) — digits for
+// a phone customer, the email for an email-identity customer. Staff
+// (manager/admin/supervisor) are trusted to join any room they are handling.
+//
+// The identity segment is parsed explicitly and compared for EQUALITY after
+// canonical normalization — never a substring test. The previous
+// `roomDigits.includes(phoneDigits)` was a substring match: a customer whose
+// number appears inside another customer's room id (or timestamp) could mint a
+// join+publish token for a call that was not theirs. For a bank KYC boundary
+// that must be an exact identity match.
 const requesterMayJoinRoom = (requester, roomName) => {
   const role = requester.type === "admin" ? "admin" : requester.role;
   if (role !== "customer") return true; // manager / admin / supervisor
   if (!requester.phone) return false;
-  const roomDigits = String(roomName).replace(/\D/g, "");
-  const phoneDigits = String(requester.phone).replace(/\D/g, "");
-  return phoneDigits.length > 0 && roomDigits.includes(phoneDigits);
+  // `room` | <id> | <timestamp>. <id> (phone digits or email) and the numeric
+  // timestamp never contain '_', so a valid room splits into exactly 3 parts.
+  const parts = String(roomName).split("_");
+  if (parts.length !== 3 || parts[0] !== "room") return false;
+  const roomIdentity = normalizePhone(parts[1]);
+  const requesterIdentity = normalizePhone(requester.phone);
+  return Boolean(requesterIdentity) && roomIdentity === requesterIdentity;
 };
 
 /**
@@ -122,8 +135,17 @@ router.post("/token", authenticateRoomRequester, async (req, res) => {
       });
     }
 
-    // Create a unique identity for the participant
-    const identity = participantIdentity || `${participantName}-${Date.now()}`;
+    // A customer's media identity is derived from their authenticated session
+    // (sid), NOT the client-supplied participantIdentity — the browser must not
+    // choose the identity its media publishes under (an attacker could otherwise
+    // submit participantIdentity:"customer-<someone-else>"). Kept in the
+    // `customer-` namespace the panels switch on (identity.startsWith('customer')
+    // drives customer-video selection and fit-mode). Staff are trusted to supply
+    // their own manager-/supervisor-/admin- identity.
+    const identity =
+      req.roomRequester.role === "customer"
+        ? `customer-${req.roomRequester.sid}`
+        : participantIdentity || `${participantName}-${Date.now()}`;
 
     // Create access token
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {

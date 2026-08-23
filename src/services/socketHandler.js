@@ -43,24 +43,9 @@ const CALL_TIMEOUT = 20000; // 20 seconds - banking industry standard
 /**
  * Normalizes phone numbers to a consistent format (removes non-digits, strips country code prefix if present)
  */
-const normalizePhone = (phone) => {
-  if (!phone) return null;
-  const str = phone.toString().trim();
-  // Email-identity customers (verified by email) carry the email as their key.
-  // Do NOT strip it to digits — that turned "kibria78@gmail.com" into "78".
-  if (str.includes('@')) return str.toLowerCase();
-  // Remove all non-numeric characters
-  let cleaned = str.replace(/\D/g, '');
-  // If it starts with 880 (Bangladesh country code), remove it
-  if (cleaned.startsWith('880') && cleaned.length > 10) {
-    cleaned = cleaned.substring(3);
-  }
-  // Ensure it starts with 0 for BD consistency (01XXXXX)
-  if (cleaned.startsWith('1') && cleaned.length === 10) {
-    cleaned = '0' + cleaned;
-  }
-  return cleaned;
-};
+// Shared with openvidu.route.js so the room name this file BUILDS and the room
+// authorization that file ENFORCES normalize identity identically (see phone.js).
+const { normalizePhone } = require("../utils/phone");
 
 const activeCustomerCalls = {};
 const activeSupervisors = {}; // Track supervisors monitoring calls
