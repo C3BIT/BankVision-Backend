@@ -54,6 +54,21 @@ const socketAuthMiddleware = async (socket, next) => {
           console.log('🚨 Socket auth rejected — customer session invalid:', err.code || err.message);
           return next(new Error("Authentication failed: session expired or invalid. Please verify again."));
         }
+      } else {
+        // Staff (manager / admin / supervisor): enforce the SAME revocable
+        // Redis session the HTTP middleware requires
+        // (authMiddleware / adminAuthMiddleware), so a logged-out, superseded
+        // (logged in elsewhere) or force-revoked staff JWT can't still open a
+        // socket and drive calls (initiate-call, capture, face-verify) until
+        // it naturally expires. Without this the socket trusted a bare
+        // signature while every REST call already required the live session —
+        // exactly the customer/staff parity gap flagged in review.
+        const { getSession } = require('../utils/sessionManager');
+        const session = await getSession(decoded.id);
+        if (!session || session.token !== token) {
+          console.log('🚨 Socket auth rejected — staff session revoked/superseded:', decoded.email || decoded.id);
+          return next(new Error("Authentication failed: session expired or logged in elsewhere. Please log in again."));
+        }
       }
 
       socket.user = {

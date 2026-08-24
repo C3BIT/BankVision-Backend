@@ -4,9 +4,10 @@ const jsonwebtoken = require('jsonwebtoken');
 const { downloadForm } = require('../controllers/forms.controller');
 const { jwtSecret } = require('../configs/variables');
 const { getTokenFromRequest } = require('../utils/cookieHelper');
+const { isSessionCurrent } = require('../utils/sessionManager');
 
 // Accept any valid JWT with role manager, admin, or supervisor
-const anyStaffAuth = (req, res, next) => {
+const anyStaffAuth = async (req, res, next) => {
   // Manager and admin sessions use distinct cookie names (see cookieHelper.js) —
   // this route accepts either role, so both are checked as fallbacks.
   const token = getTokenFromRequest(req, 'manager_auth_token') || getTokenFromRequest(req, 'admin_auth_token');
@@ -18,6 +19,10 @@ const anyStaffAuth = (req, res, next) => {
     const allowed = ['manager', 'admin', 'supervisor'];
     if (!allowed.includes(decoded.role)) {
       return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+    }
+    // Revocable-session parity with the main staff middlewares.
+    if (!(await isSessionCurrent(decoded.id, token))) {
+      return res.status(401).json({ success: false, message: 'Session expired or logged in elsewhere' });
     }
     req.user = decoded;
     return next();

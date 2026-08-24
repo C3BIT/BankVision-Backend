@@ -91,6 +91,23 @@ const hasOtherActiveSession = async (userId, currentToken) => {
 };
 
 /**
+ * Is this exact staff JWT the one currently backing the live Redis session?
+ * Central predicate for staff (manager/admin/supervisor) auth so every guard —
+ * the main HTTP middlewares, the socket, and the secondary route guards
+ * (image / recording / forms / call-reports) — enforces revocation identically:
+ * a logged-out, superseded (logged in elsewhere) or force-revoked token whose
+ * session record is gone or now holds a different token is rejected everywhere,
+ * not just on the main API. Mirrors the customer model's session validation.
+ * @param {string} userId - decoded token `id`
+ * @param {string} token - the raw JWT presented on this request
+ * @returns {Promise<boolean>}
+ */
+const isSessionCurrent = async (userId, token) => {
+  const session = await getSession(userId);
+  return Boolean(session && session.token === token);
+};
+
+/**
  * Invalidate a user's session (force logout)
  * @param {string} userId - User ID
  * @returns {Promise<boolean>} - True if session was invalidated
@@ -167,6 +184,7 @@ const cleanupExpiredSessions = async (maxAge) => {
 module.exports = {
   createSession,
   getSession,
+  isSessionCurrent,
   hasOtherActiveSession,
   invalidateSession,
   updateSessionActivity,

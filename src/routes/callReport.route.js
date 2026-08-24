@@ -5,10 +5,11 @@ const callReportController = require("../controllers/callReport.controller");
 const { managerAuthenticateMiddleware } = require("../middlewares/authMiddleware");
 const { jwtSecret } = require("../configs/variables");
 const { getTokenFromRequest } = require("../utils/cookieHelper");
+const { isSessionCurrent } = require("../utils/sessionManager");
 
 // Reports are submitted by managers but viewed by managers and admin-panel staff alike;
 // mirrors the manager/admin/supervisor pattern in forms.route.js.
-const viewerAuth = (req, res, next) => {
+const viewerAuth = async (req, res, next) => {
   // Manager and admin sessions use distinct cookie names (see cookieHelper.js) —
   // this route accepts either role, so both are checked as fallbacks.
   const token = getTokenFromRequest(req, 'manager_auth_token') || getTokenFromRequest(req, 'admin_auth_token');
@@ -20,6 +21,10 @@ const viewerAuth = (req, res, next) => {
     const allowed = ["manager", "admin", "supervisor", "super_admin"];
     if (!allowed.includes(decoded.role)) {
       return res.status(403).json({ success: false, message: "Insufficient permissions" });
+    }
+    // Revocable-session parity with the main staff middlewares.
+    if (!(await isSessionCurrent(decoded.id, token))) {
+      return res.status(401).json({ success: false, message: "Session expired or logged in elsewhere" });
     }
     req.user = decoded;
     return next();

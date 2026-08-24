@@ -5,13 +5,15 @@ const multer = require("multer");
 const { matchesMimeType } = require("../utils/fileSignature");
 const { getTokenFromRequest } = require("../utils/cookieHelper");
 const { jwtSecret } = require("../configs/variables");
+const { isSessionCurrent } = require("../utils/sessionManager");
+const { authenticateCustomerToken } = require("../utils/customerAuth");
 
 const router = Router();
 
 // Accepts either a manager or an admin/supervisor JWT — token via
 // Authorization header or ?token= query param, since <img>/window.open
 // requests can't attach headers (same pattern as recording.route.js).
-const staffAuthMiddleware = (req, res, next) => {
+const staffAuthMiddleware = async (req, res, next) => {
   // Manager and admin sessions use distinct cookie names (see cookieHelper.js) —
   // this route accepts either role, so both are checked as fallbacks.
   const token = getTokenFromRequest(req, 'manager_auth_token') || getTokenFromRequest(req, 'admin_auth_token');
@@ -25,6 +27,12 @@ const staffAuthMiddleware = (req, res, next) => {
     const isAdminStaff = decoded.type === "admin";
     if (!isManager && !isAdminStaff) {
       return res.status(403).json({ success: false, message: "Access denied" });
+    }
+    // Enforce the revocable Redis session (parity with the main staff
+    // middlewares) — a logged-out/superseded token must not still serve
+    // captured customer face images.
+    if (!(await isSessionCurrent(decoded.id, token))) {
+      return res.status(401).json({ success: false, message: "Session expired or logged in elsewhere" });
     }
     req.user = decoded;
     next();
@@ -40,9 +48,23 @@ const staffAuthMiddleware = (req, res, next) => {
 // so accept any of the three session cookies. Previously these routes were
 // fully unauthenticated — anyone could push arbitrary files into MinIO and
 // feed attacker-controlled paths to the face endpoints.
-const uploadAuthMiddleware = (req, res, next) => {
+const uploadAuthMiddleware = async (req, res, next) => {
+  // A customer token is validated against its OWN revocable session
+  // (authenticateCustomerToken — same as the HTTP/socket customer paths); a
+  // staff token against the staff Redis session. Either way a revoked session
+  // can no longer push files into MinIO and feed paths to the face endpoints.
+  const customerToken = getTokenFromRequest(req, 'customer_auth_token');
+  if (customerToken) {
+    try {
+      const auth = await authenticateCustomerToken(customerToken);
+      req.user = { role: 'customer', phone: auth.phone, sid: auth.sid };
+      return next();
+    } catch (_err) {
+      return res.status(401).json({ success: false, message: "Session expired or invalid" });
+    }
+  }
+
   const token =
-    getTokenFromRequest(req, 'customer_auth_token') ||
     getTokenFromRequest(req, 'manager_auth_token') ||
     getTokenFromRequest(req, 'admin_auth_token');
   if (!token) {
@@ -50,6 +72,9 @@ const uploadAuthMiddleware = (req, res, next) => {
   }
   try {
     const decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] });
+    if (!(await isSessionCurrent(decoded.id, token))) {
+      return res.status(401).json({ success: false, message: "Session expired or logged in elsewhere" });
+    }
     req.user = decoded;
     next();
   } catch (err) {

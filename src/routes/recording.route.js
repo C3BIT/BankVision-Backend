@@ -328,6 +328,12 @@ router.get('/:id/download', async (req, res) => {
       if (decoded.role !== 'admin' && decoded.role !== 'super_admin' && decoded.type !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin access required' });
       }
+      // Enforce the revocable Redis session so a logged-out/superseded admin
+      // token can't still stream KYC recordings (parity with adminAuthMiddleware).
+      const { isSessionCurrent } = require('../utils/sessionManager');
+      if (!(await isSessionCurrent(decoded.id, token))) {
+        return res.status(401).json({ success: false, message: 'Session expired or logged in elsewhere' });
+      }
     } catch (err) {
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
