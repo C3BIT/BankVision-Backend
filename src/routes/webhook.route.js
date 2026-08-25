@@ -19,9 +19,10 @@ const webhookController = require('../controllers/webhook.controller');
  *     responses:
  *       200: { description: Event processed }
  */
-// LiveKit Webhook endpoint
-// We use express.raw({ type: 'application/webhook+json' }) if signature verification requires it,
-// but for standard body parsing, ensure the app uses express.json()
+// LiveKit Webhook endpoint. LiveKit POSTs as `application/webhook+json` — the
+// global express.json() in index.js is configured to also parse that type
+// (and to stash req.rawBody) so the signature check in handleLiveKitWebhook
+// sees the real body.
 router.post('/livekit', webhookController.handleLiveKitWebhook);
 
 module.exports = router;

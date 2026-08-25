@@ -108,8 +108,18 @@ app.use(bodyParser.urlencoded({ extended: false, limit: '1mb' }));
 // LiveKit's webhook signature covers the exact raw request bytes, so stash
 // them before express.json() re-serializes into an object - the webhook
 // controller verifies against req.rawBody, not the parsed req.body.
+//
+// LiveKit POSTs webhooks as `Content-Type: application/webhook+json` (not
+// plain `application/json`). express.json()'s default `type` only matches
+// `application/json`, so without this the parser silently skipped LiveKit's
+// webhook body entirely — req.rawBody was never set, req.body stayed `{}`,
+// and WebhookReceiver.receive() always failed with "sha256 checksum of body
+// does not match" (confirmed live: room_finished fired but was rejected).
+// That meant the session-revoke-on-call-end feature never actually ran on
+// any deployment since it was introduced.
 app.use(express.json({
   limit: '1mb',
+  type: ['application/json', 'application/webhook+json'],
   verify: (req, res, buf) => { req.rawBody = buf; },
 }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
